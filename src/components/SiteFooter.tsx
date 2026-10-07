@@ -1,7 +1,7 @@
 export function SiteFooter() {
   return (
-    <footer className="mt-auto hidden border-t border-border py-6 text-center text-sm text-muted md:block">
-      AI Gym Coach — your trainer in your pocket.
+    <footer className="mt-auto hidden pb-8 pt-2 text-center text-[11px] text-muted/70 md:block">
+      A quieter way to train.
     </footer>
   );
 }
