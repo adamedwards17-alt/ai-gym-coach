@@ -61,6 +61,16 @@ export function NutritionDescriptionInput({
           return;
         }
         setOpen(false);
+        // Exact match on a recent suggestion → reuse that entry (structured editor
+        // when macros exist). Only genuinely new text uses the AI flow.
+        const match = suggestions.find(
+          (entry) =>
+            entry.description.trim().toLowerCase() === trimmed.toLowerCase(),
+        );
+        if (match) {
+          onSelectSuggestion(match);
+          return;
+        }
         onSubmit(trimmed);
       }}
     >
@@ -92,8 +102,10 @@ export function NutritionDescriptionInput({
               <button
                 type="button"
                 className="flex w-full flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
-                onClick={() => {
-                  setValue(entry.description);
+                onClick={(event) => {
+                  // Keep this out of the form submit path (Continue = new-food AI flow).
+                  event.preventDefault();
+                  event.stopPropagation();
                   setOpen(false);
                   onSelectSuggestion(entry);
                 }}

@@ -272,13 +272,16 @@ export function NutritionLogExperience({
 
     // Existing foods with saved macros → structured editor (not conversational).
     if (reused) {
+      setJustSaved(false);
       setRecentFood({ entry, estimate: reused });
       setDraft(emptyDraft);
       setEstimate(null);
       setPendingEstimate(null);
       setClarificationQuestion(null);
+      setClarificationAnswer("");
       setFromSuggestion(false);
       setEditing(null);
+      setSaveError(null);
       return;
     }
 

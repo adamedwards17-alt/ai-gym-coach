@@ -33,6 +33,15 @@ export const NUTRITION_ENTRY_SELECT = [
   "created_at",
 ].join(", ");
 
+/** PostgREST may return int/numeric columns as number or string. */
+function toNullableFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function toNutritionEntryRecord(
   row: Record<string, unknown>,
 ): NutritionEntryRecord | null {
@@ -68,28 +77,10 @@ export function toNutritionEntryRecord(
     meal_type: mealType,
     description: row.description,
     status,
-    calories_estimated:
-      typeof row.calories_estimated === "number"
-        ? row.calories_estimated
-        : null,
-    protein_g_estimated:
-      typeof row.protein_g_estimated === "number"
-        ? Number(row.protein_g_estimated)
-        : row.protein_g_estimated == null
-          ? null
-          : Number(row.protein_g_estimated),
-    carbs_g_estimated:
-      typeof row.carbs_g_estimated === "number"
-        ? Number(row.carbs_g_estimated)
-        : row.carbs_g_estimated == null
-          ? null
-          : Number(row.carbs_g_estimated),
-    fat_g_estimated:
-      typeof row.fat_g_estimated === "number"
-        ? Number(row.fat_g_estimated)
-        : row.fat_g_estimated == null
-          ? null
-          : Number(row.fat_g_estimated),
+    calories_estimated: toNullableFiniteNumber(row.calories_estimated),
+    protein_g_estimated: toNullableFiniteNumber(row.protein_g_estimated),
+    carbs_g_estimated: toNullableFiniteNumber(row.carbs_g_estimated),
+    fat_g_estimated: toNullableFiniteNumber(row.fat_g_estimated),
     estimation_confidence: isEstimationConfidence(row.estimation_confidence)
       ? row.estimation_confidence
       : null,

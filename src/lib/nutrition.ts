@@ -359,12 +359,20 @@ export function parseFoodEstimationResponse(
 export function estimateFromEntry(
   entry: NutritionEntryRecord,
 ): NutritionEstimate | null {
-  if (entry.calories_estimated == null) {
+  if (
+    entry.calories_estimated === null ||
+    entry.calories_estimated === undefined
+  ) {
+    return null;
+  }
+
+  const calories = Number(entry.calories_estimated);
+  if (!Number.isFinite(calories)) {
     return null;
   }
 
   return {
-    calories: Math.round(entry.calories_estimated),
+    calories: Math.round(calories),
     proteinG: Math.round(Number(entry.protein_g_estimated ?? 0)),
     carbsG: Math.round(Number(entry.carbs_g_estimated ?? 0)),
     fatG: Math.round(Number(entry.fat_g_estimated ?? 0)),

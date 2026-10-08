@@ -282,7 +282,7 @@ export async function searchRecentNutritionEntries(input: {
       };
     }
 
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     const entries: NutritionEntryRecord[] = [];
     for (const row of data ?? []) {
       const entry = toNutritionEntryRecord(
@@ -292,10 +292,19 @@ export async function searchRecentNutritionEntries(input: {
         continue;
       }
       const key = entry.description.trim().toLowerCase();
-      if (seen.has(key)) {
+      const existingIndex = seen.get(key);
+      if (existingIndex !== undefined) {
+        // Prefer a duplicate that still has saved macros for structured re-logging.
+        const existing = entries[existingIndex];
+        if (
+          existing.calories_estimated == null &&
+          entry.calories_estimated != null
+        ) {
+          entries[existingIndex] = entry;
+        }
         continue;
       }
-      seen.add(key);
+      seen.set(key, entries.length);
       entries.push(entry);
       if (entries.length >= 6) {
         break;
