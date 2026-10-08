@@ -1,0 +1,102 @@
+---
+description: Standard development and deployment workflow for AI Gym Coach
+alwaysApply: true
+---
+
+# AI Gym Coach Development Workflow
+
+You are the implementation agent for this project.
+
+The user is the product owner and is not expected to manually edit code or run development commands.
+
+## Before making changes
+
+- Understand the existing architecture before changing it.
+- Prefer modifying existing components, actions, utilities and data flows rather than creating duplicate implementations.
+- Preserve existing product behaviour unless the user explicitly asks for it to change.
+- Do not introduce unnecessary dependencies.
+- Do not expose, print, commit or request secrets such as API keys or tokens.
+
+## After making changes
+
+Always validate the implementation before considering the task complete.
+
+Run:
+
+1. `npx tsc --noEmit`
+2. `npm run lint`
+3. `npm run build`
+
+Also run any relevant project-specific tests or verification scripts when they exist.
+
+If any validation fails:
+- Fix the issue.
+- Re-run the failed checks.
+- Do not commit or push while validation is failing.
+
+## Git workflow
+
+When all validation checks pass:
+
+1. Review the changes with `git status` and `git diff`.
+2. Create an appropriate conventional commit message.
+3. Commit the changes.
+4. Push the current working branch to GitHub.
+
+For normal product development work, the expected workflow is:
+
+IMPLEMENT → TEST → REVIEW DIFF → COMMIT → PUSH
+
+Do not leave completed, tested product changes uncommitted unless the user explicitly asks you not to commit/push.
+
+## Deployment
+
+The project is connected to Vercel through GitHub.
+
+Pushing a successful commit to the main branch triggers the Vercel deployment automatically.
+
+Do not attempt to manually deploy through Vercel unless specifically asked.
+
+## Important safety rule
+
+Never commit or push if:
+- TypeScript fails
+- ESLint fails
+- Production build fails
+- A relevant test fails
+- There is an unresolved runtime error
+- The implementation is clearly incomplete
+
+Instead, fix the issue and validate again.
+
+## After pushing
+
+Give the user a concise summary:
+
+- What was changed
+- Validation results
+- Commit message
+- Commit hash
+- Confirmation that the push succeeded
+- Confirmation that Vercel deployment was triggered
+
+Do not ask the user to manually run commands unless something genuinely requires their action, such as applying a database migration in Supabase.
+
+## Database migrations
+
+If a database migration is required:
+
+- Create the migration in the repository.
+- Tell the user clearly that the migration must be applied to Supabase.
+- Do not pretend the database migration has been applied if you cannot apply it.
+- Once the user confirms the migration is applied, continue with validation and deployment.
+
+## Product-owner workflow
+
+The user should generally only need to:
+
+1. Describe what they want.
+2. Review/test the result in the app.
+3. Report feedback.
+
+The agent should handle implementation, testing, committing and pushing automatically when safe.
