@@ -1,4 +1,8 @@
 import type {
+  CoachEventType,
+  CoachMessageRole,
+} from "@/lib/coach";
+import type {
   CoachTakeSource,
   FeelingId,
   PlanId,
@@ -46,6 +50,93 @@ export type CoachGenerationContext = {
   checkIn: CompletedCheckIn;
 };
 
+export type CoachChatCheckInContext = {
+  date: string;
+  feeling: string;
+  sleep: number;
+  plannedTraining: string;
+};
+
+export type CoachChatTrainingContext = {
+  date: string;
+  trainingType: string;
+  title: string;
+  durationMinutes: number | null;
+  notes: string | null;
+};
+
+export type CoachChatNutritionContext = {
+  date: string;
+  mealType: string | null;
+  description: string;
+  status?: "eaten" | "planned";
+  caloriesEstimated?: number | null;
+  proteinGEstimated?: number | null;
+  carbsGEstimated?: number | null;
+  fatGEstimated?: number | null;
+  estimationConfidence?: "high" | "medium" | "low" | null;
+};
+
+export type CoachNutritionTargetsContext = {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+};
+
+export type CoachNutritionDayContext = {
+  targets: CoachNutritionTargetsContext | null;
+  targetsNote: string | null;
+  consumed: CoachNutritionTargetsContext;
+  remaining: CoachNutritionTargetsContext;
+  eaten: CoachChatNutritionContext[];
+  planned: CoachChatNutritionContext[];
+};
+
+export type CoachChatEventContext = {
+  eventDate: string;
+  eventType: CoachEventType;
+  summary: string;
+};
+
+export type CoachChatMessageContext = {
+  role: CoachMessageRole;
+  content: string;
+};
+
+export type CoachChatContext = {
+  localDate: string;
+  profile: CoachProfileContext;
+  today: {
+    checkIn: CoachChatCheckInContext | null;
+    training: CoachChatTrainingContext[];
+    nutrition: CoachChatNutritionContext[];
+    nutritionDay: CoachNutritionDayContext;
+  };
+  recent: {
+    checkIns: CoachChatCheckInContext[];
+    training: CoachChatTrainingContext[];
+    nutrition: CoachChatNutritionContext[];
+  };
+  coachEvents: CoachChatEventContext[];
+  conversation: {
+    id: string;
+    title: string | null;
+    needsTitle: boolean;
+    messages: CoachChatMessageContext[];
+  };
+};
+
+export type CoachChatGenerationResult = {
+  rawText: string;
+};
+
+export type FoodEstimateGenerationResult = {
+  rawText: string;
+};
+
 export interface AiProvider {
   generateCoachTake(context: CoachGenerationContext): Promise<string>;
+  generateCoachChat(context: CoachChatContext): Promise<CoachChatGenerationResult>;
+  estimateFoodNutrition(description: string): Promise<FoodEstimateGenerationResult>;
 }

@@ -2,38 +2,67 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  listRecentNutritionEntries,
+  deleteNutritionEntry,
+  estimateNutritionFood,
+  loadNutritionDay,
+  markNutritionEntryEaten,
   saveNutritionEntry,
 } from "@/app/actions/nutrition";
+import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySummary";
 import { TextReply } from "@/components/onboarding/TextReply";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
 import {
+  formatEstimateSummary,
   formatLoggedDateLabel,
   getLocalLoggedDate,
-  isDraftReadyToSave,
+  isDraftReadyToEstimate,
   labelForMealType,
   mealTypeFromOption,
   mealTypeOptions,
+  nutritionStatusOptions,
   type MealTypeOptionId,
+  type NutritionDaySummary,
   type NutritionEntryDraft,
   type NutritionEntryRecord,
+  type NutritionEntryStatus,
+  type NutritionEstimate,
 } from "@/lib/nutrition";
 
-type Step = "description" | "mealType" | "done";
+type Step = "description" | "mealType" | "status" | "confirm" | "done";
 
 const emptyDraft: NutritionEntryDraft = {
   description: null,
   mealType: null,
   mealTypeSkipped: false,
+  status: "eaten",
 };
+
+function entryMacroLine(entry: NutritionEntryRecord): string | null {
+  if (entry.calories_estimated == null) {
+    return null;
+  }
+  const protein = entry.protein_g_estimated ?? 0;
+  const carbs = entry.carbs_g_estimated ?? 0;
+  const fat = entry.fat_g_estimated ?? 0;
+  const confidence =
+    entry.estimation_confidence === "low"
+      ? " · rough estimate"
+      : entry.estimation_confidence === "medium"
+        ? " · estimated"
+        : " · estimated";
+  return `~${entry.calories_estimated} kcal · ${protein}g P · ${carbs}g C · ${fat}g F${confidence}`;
+}
 
 export function NutritionLogExperience() {
   const [draft, setDraft] = useState<NutritionEntryDraft>(emptyDraft);
   const [editing, setEditing] = useState<Step | null>(null);
+  const [estimate, setEstimate] = useState<NutritionEstimate | null>(null);
+  const [summary, setSummary] = useState<NutritionDaySummary | null>(null);
   const [entries, setEntries] = useState<NutritionEntryRecord[]>([]);
   const [ready, setReady] = useState(false);
+  const [estimating, setEstimating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -52,28 +81,42 @@ export function NutritionLogExperience() {
     if (!draft.mealTypeSkipped && draft.mealType === null) {
       return "mealType";
     }
+    if (!estimate && !estimating) {
+      return "status";
+    }
+    if (estimate) {
+      return "confirm";
+    }
     return "done";
-  }, [draft, editing]);
-
-  const todaysEntries = useMemo(
-    () => entries.filter((entry) => entry.logged_date === today),
-    [entries, today],
-  );
+  }, [draft, editing, estimate, estimating]);
 
   const earlierEntries = useMemo(
     () => entries.filter((entry) => entry.logged_date !== today),
     [entries, today],
   );
 
+  async function refreshDay() {
+    const result = await loadNutritionDay(getLocalLoggedDate());
+    if (result.status === "ok") {
+      setSummary(result.summary);
+      setEntries(result.recent);
+      setLoadError(null);
+      return true;
+    }
+    setLoadError(result.message);
+    return false;
+  }
+
   useEffect(() => {
     let cancelled = false;
 
-    void listRecentNutritionEntries().then((result) => {
+    void loadNutritionDay(getLocalLoggedDate()).then((result) => {
       if (cancelled) {
         return;
       }
       if (result.status === "ok") {
-        setEntries(result.entries);
+        setSummary(result.summary);
+        setEntries(result.recent);
         setLoadError(null);
       } else {
         setLoadError(result.message);
@@ -86,8 +129,31 @@ export function NutritionLogExperience() {
     };
   }, []);
 
-  async function handleSave() {
-    if (!isDraftReadyToSave(draft) || !draft.description || saving) {
+  async function runEstimate(description: string) {
+    setEstimating(true);
+    setSaveError(null);
+    setEstimate(null);
+
+    const result = await estimateNutritionFood({ description });
+    setEstimating(false);
+
+    if (result.status !== "ok") {
+      setSaveError(result.message);
+      setEditing("status");
+      return;
+    }
+
+    setEstimate(result.estimate);
+    setEditing(null);
+  }
+
+  async function handleConfirmSave() {
+    if (
+      !isDraftReadyToEstimate(draft) ||
+      !draft.description ||
+      !estimate ||
+      saving
+    ) {
       return;
     }
 
@@ -98,6 +164,8 @@ export function NutritionLogExperience() {
       loggedDate: getLocalLoggedDate(),
       description: draft.description,
       mealType: draft.mealTypeSkipped ? null : draft.mealType,
+      status: draft.status,
+      estimate,
     });
 
     if (result.status !== "saved") {
@@ -106,13 +174,9 @@ export function NutritionLogExperience() {
       return;
     }
 
-    const refreshed = await listRecentNutritionEntries();
-    if (refreshed.status === "ok") {
-      setEntries(refreshed.entries);
-      setLoadError(null);
-    }
-
+    await refreshDay();
     setDraft(emptyDraft);
+    setEstimate(null);
     setEditing(null);
     setJustSaved(true);
     setSaving(false);
@@ -120,10 +184,12 @@ export function NutritionLogExperience() {
 
   function startAgain() {
     setDraft(emptyDraft);
+    setEstimate(null);
     setEditing(null);
     setSaveError(null);
     setJustSaved(false);
     setSaving(false);
+    setEstimating(false);
     setComposerKey((key) => key + 1);
   }
 
@@ -135,18 +201,45 @@ export function NutritionLogExperience() {
 
   function editDescription() {
     beginEdit();
+    setEstimate(null);
     setDraft(emptyDraft);
     setEditing(null);
+    setComposerKey((key) => key + 1);
   }
 
   function editMealType() {
     beginEdit();
+    setEstimate(null);
     setDraft((current) => ({
       ...current,
       mealType: null,
       mealTypeSkipped: false,
     }));
     setEditing("mealType");
+  }
+
+  function editStatus() {
+    beginEdit();
+    setEstimate(null);
+    setEditing("status");
+  }
+
+  async function handleMarkEaten(entryId: string) {
+    const result = await markNutritionEntryEaten({ entryId });
+    if (result.status === "updated") {
+      await refreshDay();
+    } else {
+      setLoadError(result.message);
+    }
+  }
+
+  async function handleDelete(entryId: string) {
+    const result = await deleteNutritionEntry({ entryId });
+    if (result.status === "deleted") {
+      await refreshDay();
+    } else {
+      setLoadError(result.message);
+    }
   }
 
   if (!ready) {
@@ -159,7 +252,7 @@ export function NutritionLogExperience() {
 
   return (
     <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
-      <header className="mb-10">
+      <header className="mb-8">
         <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
           Nutrition
         </p>
@@ -167,9 +260,11 @@ export function NutritionLogExperience() {
           What have you eaten?
         </h1>
         <p className="mt-3 text-[16px] leading-7 text-muted">
-          Tell me what you’ve had today.
+          Tell me what you’ve had — or what’s planned — and I’ll estimate it.
         </p>
       </header>
+
+      {summary ? <NutritionDaySummaryCard summary={summary} /> : null}
 
       {loadError ? (
         <p role="alert" className="mb-6 text-[13px] leading-6 text-muted">
@@ -211,7 +306,9 @@ export function NutritionLogExperience() {
                     description,
                     mealType: null,
                     mealTypeSkipped: false,
+                    status: "eaten",
                   });
+                  setEstimate(null);
                   setEditing(null);
                 }}
               />
@@ -242,6 +339,7 @@ export function NutritionLogExperience() {
                     }
                     onChange={(optionId: MealTypeOptionId) => {
                       beginEdit();
+                      setEstimate(null);
                       setDraft((current) => ({
                         ...current,
                         mealTypeSkipped: optionId === "skip",
@@ -254,47 +352,148 @@ export function NutritionLogExperience() {
               </>
             ) : null}
 
-            {step === "done" ? (
-              <div className="flex flex-col gap-3 pl-10">
-                {saveError ? (
-                  <p
-                    role="alert"
-                    className="text-[13px] leading-6 text-muted"
+            {draft.description &&
+            (draft.mealTypeSkipped || draft.mealType !== null) ? (
+              <>
+                <CoachMessage id="nutrition-q-status">
+                  Have you already eaten this, or is it planned?
+                </CoachMessage>
+                {estimate || estimating || step === "confirm" ? (
+                  <UserResponse
+                    label={
+                      draft.status === "planned"
+                        ? "Planned"
+                        : "Already eaten"
+                    }
+                    onEdit={editStatus}
+                  />
+                ) : (
+                  <OptionSelector
+                    name="Eaten or planned"
+                    options={nutritionStatusOptions}
+                    value={draft.status}
+                    onChange={(status: NutritionEntryStatus) => {
+                      beginEdit();
+                      const description = draft.description;
+                      setDraft((current) => ({ ...current, status }));
+                      if (description) {
+                        void runEstimate(description);
+                      }
+                    }}
+                  />
+                )}
+              </>
+            ) : null}
+
+            {estimating ? (
+              <CoachMessage footnote="Estimating…">
+                Working out the nutrition for that…
+              </CoachMessage>
+            ) : null}
+
+            {estimate && !estimating ? (
+              <div className="flex flex-col gap-4">
+                <CoachMessage>
+                  {`${draft.description ?? "That meal"}\n\n${formatEstimateSummary(estimate)}\n\n${
+                    estimate.confidence === "low"
+                      ? "This is a rough estimate from your description."
+                      : "Estimated from your description."
+                  }`}
+                </CoachMessage>
+                <div className="flex flex-wrap gap-3 pl-10">
+                  {saveError ? (
+                    <p role="alert" className="w-full text-[13px] text-muted">
+                      {saveError}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={saving}
+                    className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+                    onClick={() => void handleConfirmSave()}
                   >
-                    {saveError}
-                  </p>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={saving}
-                  className="inline-flex h-11 w-fit items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
-                  onClick={() => void handleSave()}
-                >
-                  {saving ? "Saving…" : saveError ? "Try again" : "Save"}
-                </button>
+                    {saving
+                      ? "Saving…"
+                      : draft.status === "planned"
+                        ? "Save planned"
+                        : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving || estimating}
+                    className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground disabled:opacity-60"
+                    onClick={() => {
+                      if (draft.description) {
+                        void runEstimate(draft.description);
+                      }
+                    }}
+                  >
+                    Re-estimate
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    className="text-[13px] text-muted transition-colors hover:text-foreground"
+                    onClick={editDescription}
+                  >
+                    Edit description
+                  </button>
+                </div>
               </div>
+            ) : null}
+
+            {saveError && !estimate && !estimating ? (
+              <p role="alert" className="pl-10 text-[13px] text-muted">
+                {saveError}
+              </p>
             ) : null}
           </>
         )}
 
-        {todaysEntries.length > 0 ? (
+        {summary &&
+        (summary.eatenEntries.length > 0 ||
+          summary.plannedEntries.length > 0) ? (
           <section className="mt-4 border-t border-border/70 pt-8">
             <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
               Today
             </p>
-            <ul className="mt-5 flex flex-col gap-4">
-              {todaysEntries.map((entry) => (
-                <li key={entry.id} className="flex flex-col gap-1">
-                  <p className="text-[14px] text-foreground">
-                    {entry.description}
-                  </p>
-                  <p className="text-[12px] leading-5 text-muted">
-                    {entry.meal_type
-                      ? labelForMealType(entry.meal_type)
-                      : "Logged"}
-                  </p>
-                </li>
-              ))}
+            <ul className="mt-5 flex flex-col gap-5">
+              {[...summary.plannedEntries, ...summary.eatenEntries].map(
+                (entry) => (
+                  <li key={entry.id} className="flex flex-col gap-1">
+                    <p className="text-[14px] text-foreground">
+                      {entry.description}
+                    </p>
+                    <p className="text-[12px] leading-5 text-muted">
+                      {entry.status === "planned" ? "Planned" : "Eaten"}
+                      {entry.meal_type
+                        ? ` · ${labelForMealType(entry.meal_type)}`
+                        : ""}
+                      {entryMacroLine(entry)
+                        ? ` · ${entryMacroLine(entry)}`
+                        : ""}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-3">
+                      {entry.status === "planned" ? (
+                        <button
+                          type="button"
+                          className="text-[12px] text-muted transition-colors hover:text-foreground"
+                          onClick={() => void handleMarkEaten(entry.id)}
+                        >
+                          Mark eaten
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="text-[12px] text-muted transition-colors hover:text-foreground"
+                        onClick={() => void handleDelete(entry.id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                ),
+              )}
             </ul>
           </section>
         ) : null}
@@ -302,7 +501,9 @@ export function NutritionLogExperience() {
         {earlierEntries.length > 0 ? (
           <section
             className={
-              todaysEntries.length > 0
+              summary &&
+              (summary.eatenEntries.length > 0 ||
+                summary.plannedEntries.length > 0)
                 ? "pt-2"
                 : "mt-4 border-t border-border/70 pt-8"
             }
@@ -318,8 +519,12 @@ export function NutritionLogExperience() {
                   </p>
                   <p className="text-[12px] leading-5 text-muted">
                     {formatLoggedDateLabel(entry.logged_date)}
+                    {entry.status === "planned" ? " · Planned" : ""}
                     {entry.meal_type
                       ? ` · ${labelForMealType(entry.meal_type)}`
+                      : ""}
+                    {entryMacroLine(entry)
+                      ? ` · ${entryMacroLine(entry)}`
                       : ""}
                   </p>
                 </li>

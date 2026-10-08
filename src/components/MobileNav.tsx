@@ -19,7 +19,9 @@ export function MobileNav({ signedIn }: { signedIn: boolean }) {
     >
       <ul className="mx-auto grid max-w-md grid-cols-5">
         {appNavItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            pathname === item.href ||
+            (item.href !== "/" && pathname.startsWith(`${item.href}/`));
           const isCoach = item.href === "/coach";
 
           return (

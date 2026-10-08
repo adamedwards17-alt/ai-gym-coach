@@ -29,7 +29,9 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
               aria-label="Main"
             >
               {appNavItems.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive =
+                  pathname === item.href ||
+                  (item.href !== "/" && pathname.startsWith(`${item.href}/`));
                 const isCoach = item.href === "/coach";
 
                 return (

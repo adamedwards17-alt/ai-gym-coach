@@ -1,60 +1,56 @@
 "use server";
 
+import {
+  GeminiProvider,
+  isGeminiConfigured,
+} from "@/lib/ai/providers/gemini";
 import { getCurrentUser } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/server";
-import { isSupabaseConfigured } from "@/lib/supabase/env";
+import {
+  ensureNutritionTargetsForUser,
+  NUTRITION_ENTRY_SELECT,
+  summariseNutritionDay,
+  toNutritionEntryRecord,
+} from "@/lib/nutrition-day";
 import {
   isMealTypeId,
+  isNutritionEntryStatus,
   isValidLoggedDate,
+  parseFoodEstimationResponse,
   type MealTypeId,
+  type NutritionDaySummary,
   type NutritionEntryRecord,
+  type NutritionEntryStatus,
+  type NutritionEstimate,
 } from "@/lib/nutrition";
+import { createClient } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export type ListNutritionResult =
   | { status: "ok"; entries: NutritionEntryRecord[] }
+  | { status: "error"; message: string };
+
+export type NutritionDayResult =
+  | { status: "ok"; summary: NutritionDaySummary; recent: NutritionEntryRecord[] }
+  | { status: "error"; message: string };
+
+export type EstimateNutritionResult =
+  | { status: "ok"; estimate: NutritionEstimate }
   | { status: "error"; message: string };
 
 export type SaveNutritionResult =
   | { status: "saved"; entry: NutritionEntryRecord }
   | { status: "error"; message: string };
 
-const ENTRY_SELECT =
-  "id, logged_date, meal_type, description, created_at";
+export type UpdateNutritionStatusResult =
+  | { status: "updated"; entry: NutritionEntryRecord }
+  | { status: "error"; message: string };
 
-function toEntryRecord(
-  row: Record<string, unknown>,
-): NutritionEntryRecord | null {
-  if (
-    typeof row.id !== "string" ||
-    typeof row.logged_date !== "string" ||
-    typeof row.description !== "string" ||
-    typeof row.created_at !== "string"
-  ) {
-    return null;
-  }
-
-  const mealType =
-    row.meal_type === null || row.meal_type === undefined
-      ? null
-      : isMealTypeId(row.meal_type)
-        ? row.meal_type
-        : null;
-
-  if (row.meal_type !== null && row.meal_type !== undefined && mealType === null) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    logged_date: row.logged_date,
-    meal_type: mealType,
-    description: row.description,
-    created_at: row.created_at,
-  };
-}
+export type DeleteNutritionResult =
+  | { status: "deleted" }
+  | { status: "error"; message: string };
 
 export async function listRecentNutritionEntries(
-  limit = 12,
+  limit = 20,
 ): Promise<ListNutritionResult> {
   if (!isSupabaseConfigured()) {
     return {
@@ -72,7 +68,7 @@ export async function listRecentNutritionEntries(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("nutrition_entries")
-      .select(ENTRY_SELECT)
+      .select(NUTRITION_ENTRY_SELECT)
       .eq("user_id", user.id)
       .order("logged_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -87,7 +83,9 @@ export async function listRecentNutritionEntries(
     }
 
     const entries = (data ?? [])
-      .map((row) => toEntryRecord(row as Record<string, unknown>))
+      .map((row) =>
+        toNutritionEntryRecord(row as unknown as Record<string, unknown>),
+      )
       .filter((entry): entry is NutritionEntryRecord => entry !== null);
 
     return { status: "ok", entries };
@@ -102,10 +100,120 @@ export async function listRecentNutritionEntries(
   }
 }
 
+export async function loadNutritionDay(
+  localDate: string,
+): Promise<NutritionDayResult> {
+  if (!isValidLoggedDate(localDate)) {
+    return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so nutrition can’t be loaded.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const ensured = await ensureNutritionTargetsForUser(supabase, user.id);
+
+    const { data, error } = await supabase
+      .from("nutrition_entries")
+      .select(NUTRITION_ENTRY_SELECT)
+      .eq("user_id", user.id)
+      .order("logged_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (error) {
+      console.error("[nutrition] Day load failed:", error.message);
+      return {
+        status: "error",
+        message: "Nutrition couldn’t be loaded. Try again.",
+      };
+    }
+
+    const entries = (data ?? [])
+      .map((row) =>
+        toNutritionEntryRecord(row as unknown as Record<string, unknown>),
+      )
+      .filter((entry): entry is NutritionEntryRecord => entry !== null);
+
+    const summary = summariseNutritionDay({
+      localDate,
+      targets: ensured.targets,
+      targetsStatus: ensured.status,
+      targetsMessage: ensured.message,
+      entries,
+    });
+
+    return { status: "ok", summary, recent: entries };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown nutrition day error";
+    console.error("[nutrition] Day load failed:", message);
+    return {
+      status: "error",
+      message: "Nutrition couldn’t be loaded. Try again.",
+    };
+  }
+}
+
+export async function estimateNutritionFood(input: {
+  description: string;
+}): Promise<EstimateNutritionResult> {
+  const description = input.description.trim();
+  if (!description) {
+    return { status: "error", message: "Tell me what you’ve eaten." };
+  }
+
+  if (!isGeminiConfigured()) {
+    return {
+      status: "error",
+      message:
+        "Food estimation isn’t connected right now. Check GEMINI_API_KEY and try again.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const provider = new GeminiProvider();
+    const { rawText } = await provider.estimateFoodNutrition(description);
+    const estimate = parseFoodEstimationResponse(rawText);
+    if (!estimate) {
+      return {
+        status: "error",
+        message: "That estimate couldn’t be read. Try again.",
+      };
+    }
+    return { status: "ok", estimate };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown estimate error";
+    console.error("[nutrition] Estimate failed:", message);
+    return {
+      status: "error",
+      message: "That food couldn’t be estimated. Try again.",
+    };
+  }
+}
+
 export async function saveNutritionEntry(input: {
   loggedDate: string;
   description: string;
   mealType: MealTypeId | null;
+  status: NutritionEntryStatus;
+  estimate: NutritionEstimate | null;
 }): Promise<SaveNutritionResult> {
   if (!isValidLoggedDate(input.loggedDate)) {
     return { status: "error", message: "That date isn’t valid." };
@@ -118,6 +226,10 @@ export async function saveNutritionEntry(input: {
 
   if (input.mealType !== null && !isMealTypeId(input.mealType)) {
     return { status: "error", message: "That meal type isn’t valid." };
+  }
+
+  if (!isNutritionEntryStatus(input.status)) {
+    return { status: "error", message: "That meal status isn’t valid." };
   }
 
   if (!isSupabaseConfigured()) {
@@ -134,6 +246,7 @@ export async function saveNutritionEntry(input: {
 
   try {
     const supabase = await createClient();
+    const estimate = input.estimate;
     const { data, error } = await supabase
       .from("nutrition_entries")
       .insert({
@@ -141,8 +254,15 @@ export async function saveNutritionEntry(input: {
         logged_date: input.loggedDate,
         meal_type: input.mealType,
         description,
+        status: input.status,
+        calories_estimated: estimate?.calories ?? null,
+        protein_g_estimated: estimate?.proteinG ?? null,
+        carbs_g_estimated: estimate?.carbsG ?? null,
+        fat_g_estimated: estimate?.fatG ?? null,
+        estimation_confidence: estimate?.confidence ?? null,
+        estimation_source: estimate?.source ?? (estimate ? "gemini" : "none"),
       })
-      .select(ENTRY_SELECT)
+      .select(NUTRITION_ENTRY_SELECT)
       .single();
 
     if (error || !data) {
@@ -156,7 +276,9 @@ export async function saveNutritionEntry(input: {
       };
     }
 
-    const entry = toEntryRecord(data as Record<string, unknown>);
+    const entry = toNutritionEntryRecord(
+      data as unknown as Record<string, unknown>,
+    );
     if (!entry) {
       return {
         status: "error",
@@ -172,6 +294,107 @@ export async function saveNutritionEntry(input: {
     return {
       status: "error",
       message: "That entry couldn’t be saved. Try again.",
+    };
+  }
+}
+
+export async function markNutritionEntryEaten(input: {
+  entryId: string;
+}): Promise<UpdateNutritionStatusResult> {
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so that entry couldn’t be updated.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("nutrition_entries")
+      .update({ status: "eaten" })
+      .eq("id", input.entryId)
+      .eq("user_id", user.id)
+      .select(NUTRITION_ENTRY_SELECT)
+      .single();
+
+    if (error || !data) {
+      console.error(
+        "[nutrition] Mark eaten failed:",
+        error?.message ?? "No row",
+      );
+      return {
+        status: "error",
+        message: "That entry couldn’t be updated. Try again.",
+      };
+    }
+
+    const entry = toNutritionEntryRecord(
+      data as unknown as Record<string, unknown>,
+    );
+    if (!entry) {
+      return {
+        status: "error",
+        message: "That entry couldn’t be updated. Try again.",
+      };
+    }
+
+    return { status: "updated", entry };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown nutrition update error";
+    console.error("[nutrition] Mark eaten failed:", message);
+    return {
+      status: "error",
+      message: "That entry couldn’t be updated. Try again.",
+    };
+  }
+}
+
+export async function deleteNutritionEntry(input: {
+  entryId: string;
+}): Promise<DeleteNutritionResult> {
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so that entry couldn’t be deleted.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("nutrition_entries")
+      .delete()
+      .eq("id", input.entryId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("[nutrition] Delete failed:", error.message);
+      return {
+        status: "error",
+        message: "That entry couldn’t be deleted. Try again.",
+      };
+    }
+
+    return { status: "deleted" };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown nutrition delete error";
+    console.error("[nutrition] Delete failed:", message);
+    return {
+      status: "error",
+      message: "That entry couldn’t be deleted. Try again.",
     };
   }
 }
