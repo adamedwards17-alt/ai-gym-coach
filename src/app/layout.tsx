@@ -36,7 +36,13 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground">
         <SiteHeader signedIn={signedIn} />
-        <main className={signedIn ? "flex-1 pb-20 md:pb-0" : "flex-1"}>
+        <main
+          className={
+            signedIn
+              ? "flex-1 pb-[calc(4.25rem+env(safe-area-inset-bottom,0px)+0.75rem)] md:pb-0"
+              : "flex-1"
+          }
+        >
           {children}
         </main>
         {signedIn ? <SiteFooter /> : null}

@@ -13,6 +13,10 @@ import { NutritionConfirmDialog } from "@/components/nutrition/NutritionConfirmD
 import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySummary";
 import { NutritionDescriptionInput } from "@/components/nutrition/NutritionDescriptionInput";
 import { NutritionEditSheet } from "@/components/nutrition/NutritionEditSheet";
+import {
+  NutritionRecentFoodEditor,
+  type RecentFoodLogValues,
+} from "@/components/nutrition/NutritionRecentFoodEditor";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
@@ -70,6 +74,10 @@ export function NutritionLogExperience({
   >(null);
   const [clarificationAnswer, setClarificationAnswer] = useState("");
   const [fromSuggestion, setFromSuggestion] = useState(false);
+  const [recentFood, setRecentFood] = useState<{
+    entry: NutritionEntryRecord;
+    estimate: NutritionEstimate;
+  } | null>(null);
   const [summary, setSummary] = useState<NutritionDaySummary | null>(null);
   const [entries, setEntries] = useState<NutritionEntryRecord[]>([]);
   const [ready, setReady] = useState(false);
@@ -217,6 +225,7 @@ export function NutritionLogExperience({
     setPendingEstimate(null);
     setClarificationQuestion(null);
     setFromSuggestion(false);
+    setRecentFood(null);
     setEditing(null);
     setJustSaved(true);
     setSaving(false);
@@ -229,6 +238,7 @@ export function NutritionLogExperience({
     setClarificationQuestion(null);
     setClarificationAnswer("");
     setFromSuggestion(false);
+    setRecentFood(null);
     setEditing(null);
     setSaveError(null);
     setJustSaved(false);
@@ -250,6 +260,7 @@ export function NutritionLogExperience({
     setClarificationQuestion(null);
     setClarificationAnswer("");
     setFromSuggestion(false);
+    setRecentFood(null);
     setDraft(emptyDraft);
     setEditing(null);
     setComposerKey((key) => key + 1);
@@ -258,6 +269,21 @@ export function NutritionLogExperience({
   function applySuggestion(entry: NutritionEntryRecord) {
     beginEdit();
     const reused = estimateFromEntry(entry);
+
+    // Existing foods with saved macros → structured editor (not conversational).
+    if (reused) {
+      setRecentFood({ entry, estimate: reused });
+      setDraft(emptyDraft);
+      setEstimate(null);
+      setPendingEstimate(null);
+      setClarificationQuestion(null);
+      setFromSuggestion(false);
+      setEditing(null);
+      return;
+    }
+
+    // Recent food without macros → fall back to new-food conversational flow.
+    setRecentFood(null);
     setDraft({
       description: entry.description,
       mealType: entry.meal_type,
@@ -265,10 +291,45 @@ export function NutritionLogExperience({
       status: "eaten",
     });
     setEstimate(null);
-    setPendingEstimate(reused);
+    setPendingEstimate(null);
     setClarificationQuestion(null);
-    setFromSuggestion(true);
+    setFromSuggestion(false);
     setEditing(entry.meal_type == null ? "mealType" : null);
+  }
+
+  async function handleRecentFoodLog(values: RecentFoodLogValues) {
+    if (saving) {
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+
+    const result = await saveNutritionEntry({
+      loggedDate: getLocalLoggedDate(),
+      description: values.description,
+      mealType: values.mealType,
+      status: values.status,
+      estimate: values.estimate,
+    });
+
+    if (result.status !== "saved") {
+      setSaveError(result.message);
+      setSaving(false);
+      return;
+    }
+
+    await refreshDay();
+    setRecentFood(null);
+    setDraft(emptyDraft);
+    setEstimate(null);
+    setPendingEstimate(null);
+    setClarificationQuestion(null);
+    setFromSuggestion(false);
+    setEditing(null);
+    setJustSaved(true);
+    setSaving(false);
+    setComposerKey((key) => key + 1);
   }
 
   function editMealType() {
@@ -426,6 +487,17 @@ export function NutritionLogExperience({
               </button>
             </div>
           </div>
+        ) : recentFood ? (
+          <NutritionRecentFoodEditor
+            key={`${recentFood.entry.id}-${composerKey}`}
+            entry={recentFood.entry}
+            baseEstimate={recentFood.estimate}
+            initialMealType={initialMealType}
+            saving={saving}
+            error={saveError}
+            onCancel={resetDescriptionFlow}
+            onLog={(values) => void handleRecentFoodLog(values)}
+          />
         ) : (
           <>
             <CoachMessage>What have you eaten?</CoachMessage>
@@ -441,6 +513,7 @@ export function NutritionLogExperience({
                 placeholder="e.g. Eggs and toast"
                 onSubmit={(description) => {
                   beginEdit();
+                  setRecentFood(null);
                   setDraft({
                     description,
                     mealType: null,
