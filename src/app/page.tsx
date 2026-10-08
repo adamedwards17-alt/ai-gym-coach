@@ -14,7 +14,7 @@ export default function HomePage() {
         how you feel.
       </p>
       <Link
-        href="/coach"
+        href="/onboarding"
         className="mt-10 inline-flex h-12 items-center justify-center rounded-full bg-foreground px-8 text-sm font-medium text-background transition-opacity hover:opacity-90"
       >
         Meet your coach

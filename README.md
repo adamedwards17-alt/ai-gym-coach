@@ -21,6 +21,19 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000) in your browser.
 
+## Connecting Supabase (you do this in a file, not in chat)
+
+The app is wired to read two values from a local file called `.env.local` (this file stays on your computer and is not uploaded to GitHub).
+
+1. Open your Supabase project in the browser.
+2. Find **Project URL** and the **publishable** key (sometimes labelled “anon” or “publishable”). Do **not** copy the secret key.
+3. Open `.env.local` in this project and replace:
+   - `PASTE_PROJECT_URL_HERE` with the Project URL
+   - `PASTE_PUBLISHABLE_KEY_HERE` with the publishable key
+4. Save the file, then stop and start `npm run dev` again.
+
+Do not paste those values into Cursor chat.
+
 ## What’s next (not built yet)
 
 - Sign in with Supabase
