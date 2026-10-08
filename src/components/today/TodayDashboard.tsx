@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
+import { startMealInspirationChat } from "@/app/actions/coach";
 import {
   loadTodayDashboard,
   type TodayDashboardData,
@@ -13,6 +21,8 @@ import {
   hydrateCheckInForUi,
   toTodayCheckInState,
 } from "@/lib/check-ins";
+import { getLocalCoachDate } from "@/lib/coach";
+import { resolveCoachMoment, type CoachMoment } from "@/lib/coach-moment";
 import { resolveNextAction, type NextAction } from "@/lib/next-action";
 import { getDisplayName } from "@/lib/profile";
 import {
@@ -31,23 +41,6 @@ type Panel = "dashboard" | "check-in";
 type TodayDashboardProps = {
   displayName: string;
 };
-
-function truncateInsight(text: string, maxChars = 180): string {
-  const cleaned = text.replace(/\s+/g, " ").trim();
-  if (cleaned.length <= maxChars) {
-    return cleaned;
-  }
-  const slice = cleaned.slice(0, maxChars);
-  const lastStop = Math.max(
-    slice.lastIndexOf(". "),
-    slice.lastIndexOf("! "),
-    slice.lastIndexOf("? "),
-  );
-  if (lastStop > 60) {
-    return slice.slice(0, lastStop + 1).trim();
-  }
-  return `${slice.trimEnd()}…`;
-}
 
 function NutritionSection({
   data,
@@ -261,11 +254,14 @@ function RecoverySection({
 }
 
 export function TodayDashboard({ displayName }: TodayDashboardProps) {
+  const router = useRouter();
   const [data, setData] = useState<TodayDashboardData | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [inspirationError, setInspirationError] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>("dashboard");
   const [now, setNow] = useState(() => new Date());
+  const [inspirationPending, startInspiration] = useTransition();
   const name = getDisplayName(displayName);
   const hour = now.getHours();
   const greeting = greetingForHour(hour, name);
@@ -320,12 +316,40 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     });
   }, [data, now]);
 
+  const coachMoment: CoachMoment | null = useMemo(() => {
+    if (!data) {
+      return null;
+    }
+    return resolveCoachMoment({
+      now,
+      hasCheckIn: data.hasCheckIn,
+      plannedTraining: data.plannedTraining,
+      loggedMealTypes: data.loggedMealTypes,
+      hasTrainingSession: data.hasTrainingSession,
+      nutrition: data.nutrition,
+    });
+  }, [data, now]);
+
   const editInitial: TodayCheckIn | null = useMemo(() => {
     if (!data?.checkIn) {
       return null;
     }
     return hydrateCheckInForUi(toTodayCheckInState(data.checkIn));
   }, [data]);
+
+  function handleNeedInspiration() {
+    setInspirationError(null);
+    startInspiration(async () => {
+      const result = await startMealInspirationChat({
+        localDate: getLocalCoachDate(),
+      });
+      if (result.status !== "created") {
+        setInspirationError(result.message);
+        return;
+      }
+      router.push(`/coach/${result.conversation.id}`);
+    });
+  }
 
   function handleCheckInCompleted(
     _checkIn: TodayCheckIn,
@@ -428,20 +452,53 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
             onEdit={() => setPanel("check-in")}
           />
 
-          {data.coachTake ? (
+          {coachMoment ? (
             <section className="today-reveal">
               <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-                Coach insight
+                Coach
               </h2>
-              <p className="mt-4 text-[15px] leading-7 text-foreground/90">
-                {truncateInsight(data.coachTake)}
+              <p className="mt-4 font-serif text-[1.45rem] leading-snug tracking-tight text-foreground">
+                {coachMoment.title}
               </p>
-              <Link
-                href="/coach"
-                className="mt-3 inline-flex text-[13px] text-muted transition-colors hover:text-foreground"
-              >
-                Ask Coach
-              </Link>
+              {coachMoment.description ? (
+                <p className="mt-2 text-[14px] leading-6 text-muted">
+                  {coachMoment.description}
+                </p>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+                {coachMoment.type === "morning_check_in" ? (
+                  <button
+                    type="button"
+                    onClick={() => setPanel("check-in")}
+                    className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                  >
+                    Start check-in
+                  </button>
+                ) : null}
+                {coachMoment.showInspirationCta ? (
+                  <button
+                    type="button"
+                    disabled={inspirationPending}
+                    onClick={handleNeedInspiration}
+                    className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
+                  >
+                    {inspirationPending ? "Opening…" : "Need inspiration"}
+                  </button>
+                ) : (
+                  <Link
+                    href="/coach"
+                    className="text-[13px] text-muted transition-colors hover:text-foreground"
+                  >
+                    Ask Coach
+                  </Link>
+                )}
+              </div>
+              {inspirationError ? (
+                <p role="alert" className="mt-3 text-[13px] text-muted">
+                  {inspirationError}
+                </p>
+              ) : null}
             </section>
           ) : null}
 

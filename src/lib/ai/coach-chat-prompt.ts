@@ -1,4 +1,8 @@
 import type { CoachChatContext } from "@/lib/ai/types";
+import {
+  isMealInspirationConversation,
+  MEAL_INSPIRATION_WORKFLOW_PROMPT,
+} from "@/lib/meal-inspiration";
 
 export const COACH_CHAT_SYSTEM_PROMPT = `You are the user's personal fitness coach inside AI Gym Coach.
 
@@ -195,5 +199,10 @@ ${formatNutrition(recent.nutrition)}
 Active coaching notes (from other conversations / prior decisions):
 ${eventsBlock}
 
+${
+  isMealInspirationConversation(conversation.title)
+    ? `${MEAL_INSPIRATION_WORKFLOW_PROMPT}\n`
+    : ""
+}
 Respond to the latest user message in this conversation using the JSON schema from your instructions.`;
 }

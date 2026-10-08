@@ -15,6 +15,11 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import {
+  hasSentMealInspirationQuickReply,
+  isMealInspirationConversation,
+  MEAL_INSPIRATION_QUICK_REPLIES,
+} from "@/lib/meal-inspiration";
 
 type CoachConversationExperienceProps = {
   conversationId: string;
@@ -62,9 +67,9 @@ export function CoachConversationExperience({
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending]);
 
-  function handleSend() {
-    const content = draft.trim();
-    if (!content || pending) {
+  function sendContent(content: string) {
+    const trimmed = content.trim();
+    if (!trimmed || pending) {
       return;
     }
 
@@ -72,18 +77,18 @@ export function CoachConversationExperience({
     setError(null);
 
     const optimistic: CoachMessageRecord = {
-      id: `local-${Date.now()}`,
+      id: `local-${conversationId}-${messages.length}-${trimmed.length}`,
       conversation_id: conversationId,
       role: "user",
-      content,
-      created_at: new Date().toISOString(),
+      content: trimmed,
+      created_at: new Date(0).toISOString(),
     };
     setMessages((current) => [...current, optimistic]);
 
     startTransition(async () => {
       const result = await sendCoachMessage({
         conversationId,
-        content,
+        content: trimmed,
         localDate: getLocalCoachDate(),
       });
 
@@ -102,6 +107,10 @@ export function CoachConversationExperience({
       }
       setError(result.message);
     });
+  }
+
+  function handleSend() {
+    sendContent(draft);
   }
 
   function handleRetry() {
@@ -166,6 +175,12 @@ export function CoachConversationExperience({
 
   const lastIsUser =
     messages.length > 0 && messages[messages.length - 1]?.role === "user";
+
+  const showMealInspirationQuickReplies =
+    isMealInspirationConversation(conversation.title) &&
+    !pending &&
+    messages.some((message) => message.role === "assistant") &&
+    !hasSentMealInspirationQuickReply(messages);
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-8.5rem)] w-full max-w-md flex-col px-5 pb-28 pt-6 sm:max-w-lg sm:min-h-[calc(100dvh-7rem)] sm:px-6 sm:pb-10 sm:pt-10">
@@ -236,6 +251,22 @@ export function CoachConversationExperience({
 
         <div ref={bottomRef} />
       </div>
+
+      {showMealInspirationQuickReplies ? (
+        <div className="mt-6 flex flex-wrap gap-2">
+          {MEAL_INSPIRATION_QUICK_REPLIES.map((reply) => (
+            <button
+              key={reply}
+              type="button"
+              disabled={pending}
+              onClick={() => sendContent(reply)}
+              className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
+            >
+              {reply}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <form
         className="sticky bottom-20 mt-8 sm:bottom-6"

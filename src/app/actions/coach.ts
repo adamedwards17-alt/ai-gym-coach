@@ -13,6 +13,10 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import {
+  MEAL_INSPIRATION_SEED_MESSAGE,
+  MEAL_INSPIRATION_TITLE,
+} from "@/lib/meal-inspiration";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
@@ -21,6 +25,10 @@ export type ListConversationsResult =
   | { status: "error"; message: string };
 
 export type CreateConversationResult =
+  | { status: "created"; conversation: CoachConversationRecord }
+  | { status: "error"; message: string };
+
+export type StartMealInspirationResult =
   | { status: "created"; conversation: CoachConversationRecord }
   | { status: "error"; message: string };
 
@@ -229,6 +237,89 @@ export async function createCoachConversation(): Promise<CreateConversationResul
     return {
       status: "error",
       message: "A new chat couldn’t be created. Try again.",
+    };
+  }
+}
+
+/**
+ * Opens a dedicated meal-inspiration Coach chat with live day context.
+ * Does not create any nutrition entries.
+ */
+export async function startMealInspirationChat(input: {
+  localDate: string;
+}): Promise<StartMealInspirationResult> {
+  if (!isValidCoachDate(input.localDate)) {
+    return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so inspiration couldn’t start.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("coach_conversations")
+      .insert({
+        user_id: user.id,
+        title: MEAL_INSPIRATION_TITLE,
+      })
+      .select(CONVERSATION_SELECT)
+      .single();
+
+    if (error || !data) {
+      console.error(
+        "[coach] Meal inspiration create failed:",
+        error?.message ?? "No row returned",
+      );
+      return {
+        status: "error",
+        message: "Inspiration couldn’t start. Try again.",
+      };
+    }
+
+    const conversation = toConversation(data as Record<string, unknown>);
+    if (!conversation) {
+      return {
+        status: "error",
+        message: "Inspiration couldn’t start. Try again.",
+      };
+    }
+
+    const seeded = await sendCoachMessage({
+      conversationId: conversation.id,
+      content: MEAL_INSPIRATION_SEED_MESSAGE,
+      localDate: input.localDate,
+    });
+
+    if (seeded.status === "error" && !seeded.conversation) {
+      return {
+        status: "error",
+        message: seeded.message,
+      };
+    }
+
+    return {
+      status: "created",
+      conversation: seeded.conversation ?? conversation,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown meal inspiration error";
+    console.error("[coach] Meal inspiration failed:", message);
+    return {
+      status: "error",
+      message: "Inspiration couldn’t start. Try again.",
     };
   }
 }
