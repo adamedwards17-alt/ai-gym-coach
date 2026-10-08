@@ -1,22 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { requestCoachTake } from "@/app/actions/coach-take";
 import { CoachMessage } from "@/components/today/CoachMessage";
-import { getDisplayName } from "@/lib/profile";
 import { DailyFocus } from "@/components/today/DailyFocus";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { SleepRating } from "@/components/today/SleepRating";
 import { UserResponse } from "@/components/today/UserResponse";
+import { getDisplayName } from "@/lib/profile";
 import {
   feelingOptions,
-  getCoachTake,
   getDailyFocus,
   greetingForHour,
+  isCheckInComplete,
   labelForFeeling,
   labelForPlan,
   labelForSleep,
   planOptions,
+  type CoachTake,
   type FeelingId,
   type PlanId,
   type SleepScore,
@@ -33,6 +35,9 @@ const emptyCheckIn: TodayCheckIn = {
 
 export function DailyCheckIn({ displayName }: { displayName: string }) {
   const [checkIn, setCheckIn] = useState<TodayCheckIn>(emptyCheckIn);
+  const [coachTake, setCoachTake] = useState<CoachTake | null>(null);
+  const [loadingTake, setLoadingTake] = useState(false);
+  const requestKeyRef = useRef<string | null>(null);
   const hour = new Date().getHours();
   const greeting = greetingForHour(hour, getDisplayName(displayName));
 
@@ -44,8 +49,50 @@ export function DailyCheckIn({ displayName }: { displayName: string }) {
         ? "plan"
         : "done";
 
-  const coachTake = useMemo(() => getCoachTake(checkIn), [checkIn]);
   const focus = useMemo(() => getDailyFocus(checkIn), [checkIn]);
+
+  useEffect(() => {
+    if (!isCheckInComplete(checkIn)) {
+      return;
+    }
+
+    const key = `${checkIn.feeling}:${checkIn.sleep}:${checkIn.plan}`;
+    if (requestKeyRef.current === key) {
+      return;
+    }
+    requestKeyRef.current = key;
+
+    let cancelled = false;
+    setLoadingTake(true);
+    setCoachTake(null);
+
+    void requestCoachTake({
+      feeling: checkIn.feeling,
+      sleep: checkIn.sleep,
+      plan: checkIn.plan,
+    })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setCoachTake(result);
+        setLoadingTake(false);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setCoachTake({
+          source: "preview",
+          text: "Keep today sensible. Listen to your body, hit what you can with quality, and protect tonight’s sleep.",
+        });
+        setLoadingTake(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkIn]);
 
   useEffect(() => {
     const targetId =
@@ -65,17 +112,26 @@ export function DailyCheckIn({ displayName }: { displayName: string }) {
       behavior: "smooth",
       block: "start",
     });
-  }, [step]);
+  }, [step, loadingTake, coachTake]);
+
+  function resetCoachTake() {
+    requestKeyRef.current = null;
+    setCoachTake(null);
+    setLoadingTake(false);
+  }
 
   function editFeeling() {
+    resetCoachTake();
     setCheckIn(emptyCheckIn);
   }
 
   function editSleep() {
+    resetCoachTake();
     setCheckIn((current) => ({ ...current, sleep: null, plan: null }));
   }
 
   function editPlan() {
+    resetCoachTake();
     setCheckIn((current) => ({ ...current, plan: null }));
   }
 
@@ -105,14 +161,15 @@ export function DailyCheckIn({ displayName }: { displayName: string }) {
             name="How you feel"
             options={feelingOptions}
             value={checkIn.feeling}
-            onChange={(feeling: FeelingId) =>
+            onChange={(feeling: FeelingId) => {
+              resetCoachTake();
               setCheckIn((current) => ({
                 ...current,
                 feeling,
                 sleep: null,
                 plan: null,
-              }))
-            }
+              }));
+            }}
           />
         )}
 
@@ -129,13 +186,14 @@ export function DailyCheckIn({ displayName }: { displayName: string }) {
             ) : (
               <SleepRating
                 value={checkIn.sleep}
-                onChange={(sleep: SleepScore) =>
+                onChange={(sleep: SleepScore) => {
+                  resetCoachTake();
                   setCheckIn((current) => ({
                     ...current,
                     sleep,
                     plan: null,
-                  }))
-                }
+                  }));
+                }}
               />
             )}
           </>
@@ -156,15 +214,22 @@ export function DailyCheckIn({ displayName }: { displayName: string }) {
                 name="Today’s plan"
                 options={planOptions}
                 value={checkIn.plan}
-                onChange={(plan: PlanId) =>
-                  setCheckIn((current) => ({ ...current, plan }))
-                }
+                onChange={(plan: PlanId) => {
+                  resetCoachTake();
+                  setCheckIn((current) => ({ ...current, plan }));
+                }}
               />
             )}
           </>
         ) : null}
 
-        {coachTake ? (
+        {loadingTake ? (
+          <CoachMessage id="today-coach" footnote="Thinking…">
+            One moment — shaping today’s take around you.
+          </CoachMessage>
+        ) : null}
+
+        {coachTake && !loadingTake ? (
           <>
             <CoachMessage
               id="today-coach"

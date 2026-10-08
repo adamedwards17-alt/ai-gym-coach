@@ -1,8 +1,8 @@
 /**
- * Today check-in options and temporary coach copy.
+ * Today check-in options and deterministic coach fallback.
  *
- * getCoachTake() is the only place that writes the coach's recommendation.
- * Later, swap its body for an OpenAI call — keep returning { text, source }.
+ * Live AI coaching is generated server-side; getCoachTake() remains the
+ * offline/error fallback. Keep returning { text, source }.
  */
 
 export type FeelingId = "strong" | "good" | "flat" | "tired" | "sore";
@@ -15,10 +15,11 @@ export type TodayCheckIn = {
   plan: PlanId | null;
 };
 
+export type CoachTakeSource = "preview" | "gemini";
+
 export type CoachTake = {
   text: string;
-  /** "preview" until OpenAI is connected. */
-  source: "preview";
+  source: CoachTakeSource;
 };
 
 export const feelingOptions: { id: FeelingId; label: string }[] = [
