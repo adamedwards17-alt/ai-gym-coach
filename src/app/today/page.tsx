@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { DailyCheckIn } from "@/components/today/DailyCheckIn";
+import { TodayDashboard } from "@/components/today/TodayDashboard";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -24,7 +24,7 @@ export default async function TodayPage() {
   }
 
   return (
-    <DailyCheckIn
+    <TodayDashboard
       displayName={profile.display_name?.trim() || "there"}
     />
   );

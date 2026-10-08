@@ -53,7 +53,7 @@ export class GeminiProvider implements AiProvider {
       config: {
         systemInstruction: COACH_SYSTEM_PROMPT,
         temperature: 0.7,
-        maxOutputTokens: 500,
+        maxOutputTokens: 160,
       },
     });
 

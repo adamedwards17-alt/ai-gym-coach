@@ -34,7 +34,14 @@ const PROFILE_SELECT = [
 ].join(", ");
 
 function previewFallback(checkIn: CompletedCheckIn): CoachTakeResult {
-  const fallback = getCoachTake(checkIn);
+  const fallback = getCoachTake({
+    feeling: checkIn.feeling,
+    sleep: checkIn.sleep,
+    plan: checkIn.plan,
+    sleepHours: checkIn.sleepHours ?? null,
+    sleepQuality: checkIn.sleepQuality ?? null,
+    feelingRating: checkIn.feelingRating ?? null,
+  });
   return {
     source: "preview",
     text:

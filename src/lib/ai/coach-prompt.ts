@@ -2,32 +2,34 @@ import {
   labelForFeeling,
   labelForPlan,
   labelForSleep,
+  labelForSleepHours,
+  labelForSleepQuality,
+  type FeelingRating,
+  type SleepHoursOption,
+  type SleepQualityId,
 } from "@/lib/today";
 import type { CoachGenerationContext } from "@/lib/ai/types";
 
 export const COACH_SYSTEM_PROMPT = `You are the coach inside AI Gym Coach — a calm, intelligent personal trainer.
 
-Write a personalised "Coach's Take" for today based only on the user's profile and today's check-in.
+Write a short "Coach’s Take" insight for the Today dashboard based only on the user's profile and today's check-in.
 
 Tone:
 - intelligent, practical, concise, personalised
-- encouraging and honest without being cheesy or overly enthusiastic
+- encouraging and honest without being cheesy
 - calm, never generic motivational filler
 
 Format:
-- 2–4 short paragraphs
+- 1–2 short sentences only (about 25–45 words total)
 - plain text only (no markdown, no bullet lists, no headings)
 - speak directly to the user; use their first name sparingly if natural
+- this is a dashboard insight, not a full coaching report
 
 Content:
-- what today's check-in suggests
-- what they should focus on today
-- whether their planned training makes sense given how they feel and slept
-- whether they should adjust anything
-- use their goals, training context, and coaching style when relevant
-- if they report soreness, suggest sensible modifications — do not diagnose an injury
-- if they describe potentially serious symptoms (chest pain, fainting, severe shortness of breath, or serious injury symptoms), do not give a normal training recommendation; advise seeking appropriate medical attention and stop there
-- this is fitness coaching, not medical diagnosis
+- the single most useful observation for today
+- optionally one practical nudge (protein, training intensity, recovery)
+- if they report soreness, suggest a sensible adjustment — do not diagnose
+- if they describe potentially serious symptoms (chest pain, fainting, severe shortness of breath, or serious injury symptoms), advise seeking medical attention and stop there
 
 Do not invent profile details that are missing. Do not mention that you are an AI.`;
 
@@ -47,6 +49,18 @@ function formatValue(value: string | number | null | undefined): string {
 
 export function buildCoachUserPrompt(context: CoachGenerationContext): string {
   const { profile, checkIn } = context;
+  const sleepHours =
+    checkIn.sleepHours != null
+      ? labelForSleepHours(checkIn.sleepHours as SleepHoursOption)
+      : "not provided";
+  const sleepQuality =
+    checkIn.sleepQuality != null
+      ? labelForSleepQuality(checkIn.sleepQuality as SleepQualityId)
+      : "not provided";
+  const feelingRating =
+    checkIn.feelingRating != null
+      ? `${checkIn.feelingRating as FeelingRating} / 5`
+      : "not provided";
 
   return `User profile:
 - Name: ${formatValue(profile.display_name)}
@@ -72,9 +86,12 @@ export function buildCoachUserPrompt(context: CoachGenerationContext): string {
 - Preferred coaching style: ${formatValue(profile.coaching_style)}
 
 Today's check-in:
-- Feeling: ${labelForFeeling(checkIn.feeling)}
-- Sleep: ${labelForSleep(checkIn.sleep)}
+- Sleep hours: ${sleepHours}
+- Sleep quality: ${sleepQuality}
+- Feeling rating: ${feelingRating}
+- Feeling context: ${labelForFeeling(checkIn.feeling)}
+- Sleep (legacy score): ${labelForSleep(checkIn.sleep)}
 - Planned training: ${labelForPlan(checkIn.plan)}
 
-Write today's Coach's Take.`;
+Write today's Coach’s Take as 1–2 short sentences.`;
 }

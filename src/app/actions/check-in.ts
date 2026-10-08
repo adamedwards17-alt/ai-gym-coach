@@ -1,8 +1,17 @@
 "use server";
 
 import {
+  feelingRatingToFeeling,
+  isCheckInComplete,
+  sleepQualityToRating,
+  type TodayCheckIn,
+} from "@/lib/today";
+import {
   isFeelingId,
+  isFeelingRating,
   isPlanId,
+  isSleepHoursOption,
+  isSleepQualityId,
   isSleepScore,
   isValidCheckInDate,
   normalizeStoredCoachTake,
@@ -13,7 +22,6 @@ import {
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { isCheckInComplete, type TodayCheckIn } from "@/lib/today";
 
 export type LoadCheckInResult =
   | {
@@ -33,24 +41,45 @@ export type SaveCoachTakeResult =
   | { status: "saved" }
   | { status: "error"; message: string };
 
+const CHECK_IN_SELECT =
+  "feeling, sleep_rating, planned_training, check_in_date, coach_take, sleep_hours, sleep_quality, feeling_rating";
+
 function parseCompletedCheckIn(
   input: TodayCheckIn,
 ): CompletedDailyCheckIn | null {
   if (
-    !isFeelingId(input.feeling) ||
-    !isSleepScore(input.sleep) ||
+    !isSleepHoursOption(input.sleepHours) ||
+    !isSleepQualityId(input.sleepQuality) ||
+    !isFeelingRating(input.feelingRating) ||
     !isPlanId(input.plan)
   ) {
     return null;
   }
 
-  const checkIn = {
-    feeling: input.feeling,
-    sleep: input.sleep,
+  const sleep =
+    input.sleep && isSleepScore(input.sleep)
+      ? input.sleep
+      : sleepQualityToRating(input.sleepQuality);
+
+  const feeling =
+    input.feeling && isFeelingId(input.feeling)
+      ? input.feeling
+      : feelingRatingToFeeling(input.feelingRating);
+
+  const checkIn: CompletedDailyCheckIn = {
+    feeling,
+    sleep,
     plan: input.plan,
+    sleepHours: input.sleepHours,
+    sleepQuality: input.sleepQuality,
+    feelingRating: input.feelingRating,
   };
 
-  return isCheckInComplete(checkIn) ? checkIn : null;
+  return isCheckInComplete({
+    ...checkIn,
+  })
+    ? checkIn
+    : null;
 }
 
 export async function loadTodaysCheckIn(
@@ -79,9 +108,7 @@ export async function loadTodaysCheckIn(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("daily_check_ins")
-      .select(
-        "feeling, sleep_rating, planned_training, check_in_date, coach_take",
-      )
+      .select(CHECK_IN_SELECT)
       .eq("user_id", user.id)
       .eq("check_in_date", checkInDate)
       .maybeSingle();
@@ -144,7 +171,7 @@ export async function saveTodaysCheckIn(input: {
   if (!checkIn) {
     return {
       status: "error",
-      message: "Finish feeling, sleep, and today’s plan before saving.",
+      message: "Finish sleep, feeling, and today’s plan before saving.",
     };
   }
 
@@ -172,6 +199,9 @@ export async function saveTodaysCheckIn(input: {
         feeling: checkIn.feeling,
         sleep_rating: checkIn.sleep,
         planned_training: checkIn.plan,
+        sleep_hours: checkIn.sleepHours,
+        sleep_quality: checkIn.sleepQuality,
+        feeling_rating: checkIn.feelingRating,
       },
       { onConflict: "user_id,check_in_date" },
     );

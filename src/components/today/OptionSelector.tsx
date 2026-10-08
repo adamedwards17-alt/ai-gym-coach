@@ -1,16 +1,16 @@
-type Option<T extends string> = {
+type Option<T extends string | number> = {
   id: T;
   label: string;
 };
 
-type OptionSelectorProps<T extends string> = {
+type OptionSelectorProps<T extends string | number> = {
   name: string;
   options: readonly Option<T>[];
   value: T | null;
   onChange: (id: T) => void;
 };
 
-export function OptionSelector<T extends string>({
+export function OptionSelector<T extends string | number>({
   name,
   options,
   value,

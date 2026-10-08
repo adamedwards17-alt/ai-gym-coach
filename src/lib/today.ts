@@ -8,8 +8,14 @@
 export type FeelingId = "strong" | "good" | "flat" | "tired" | "sore";
 export type PlanId = "strength" | "hiit" | "recovery" | "rest" | "unsure";
 export type SleepScore = 1 | 2 | 3 | 4 | 5;
+export type SleepQualityId = "bad" | "okay" | "good" | "very_good";
+export type FeelingRating = 1 | 2 | 3 | 4 | 5;
+export type SleepHoursOption = 5 | 6 | 7 | 8 | 9;
 
 export type TodayCheckIn = {
+  sleepHours: SleepHoursOption | null;
+  sleepQuality: SleepQualityId | null;
+  feelingRating: FeelingRating | null;
   feeling: FeelingId | null;
   sleep: SleepScore | null;
   plan: PlanId | null;
@@ -38,6 +44,29 @@ export const planOptions: { id: PlanId; label: string }[] = [
   { id: "unsure", label: "Not sure yet" },
 ];
 
+export const sleepHoursOptions: { id: SleepHoursOption; label: string }[] = [
+  { id: 5, label: "5h" },
+  { id: 6, label: "6h" },
+  { id: 7, label: "7h" },
+  { id: 8, label: "8h" },
+  { id: 9, label: "9h+" },
+];
+
+export const sleepQualityOptions: { id: SleepQualityId; label: string }[] = [
+  { id: "bad", label: "Bad" },
+  { id: "okay", label: "Okay" },
+  { id: "good", label: "Good" },
+  { id: "very_good", label: "Very good" },
+];
+
+export const feelingRatingOptions: { id: FeelingRating; label: string }[] = [
+  { id: 1, label: "1" },
+  { id: 2, label: "2" },
+  { id: 3, label: "3" },
+  { id: 4, label: "4" },
+  { id: 5, label: "5" },
+];
+
 export function labelForFeeling(id: FeelingId): string {
   return feelingOptions.find((option) => option.id === id)?.label ?? id;
 }
@@ -56,129 +85,107 @@ export function labelForSleep(score: SleepScore): string {
   return `${score} / 5`;
 }
 
+export function labelForSleepQuality(id: SleepQualityId): string {
+  return sleepQualityOptions.find((option) => option.id === id)?.label ?? id;
+}
+
+export function labelForSleepHours(hours: SleepHoursOption): string {
+  return hours === 9 ? "9h+" : `${hours}h`;
+}
+
+export function sleepQualityToRating(quality: SleepQualityId): SleepScore {
+  switch (quality) {
+    case "bad":
+      return 1;
+    case "okay":
+      return 3;
+    case "good":
+      return 4;
+    case "very_good":
+      return 5;
+  }
+}
+
+export function feelingRatingToFeeling(rating: FeelingRating): FeelingId {
+  if (rating >= 5) {
+    return "strong";
+  }
+  if (rating === 4) {
+    return "good";
+  }
+  if (rating === 3) {
+    return "flat";
+  }
+  return "tired";
+}
+
 export function isCheckInComplete(
   checkIn: TodayCheckIn,
-): checkIn is { feeling: FeelingId; sleep: SleepScore; plan: PlanId } {
+): checkIn is {
+  sleepHours: SleepHoursOption;
+  sleepQuality: SleepQualityId;
+  feelingRating: FeelingRating;
+  feeling: FeelingId;
+  sleep: SleepScore;
+  plan: PlanId;
+} {
   return (
+    checkIn.sleepHours !== null &&
+    checkIn.sleepQuality !== null &&
+    checkIn.feelingRating !== null &&
     checkIn.feeling !== null &&
     checkIn.sleep !== null &&
     checkIn.plan !== null
   );
 }
 
+/** Empty draft for the morning recovery check-in. */
+export const emptyTodayCheckIn: TodayCheckIn = {
+  sleepHours: null,
+  sleepQuality: null,
+  feelingRating: null,
+  feeling: null,
+  sleep: null,
+  plan: null,
+};
+
 export function getCoachTake(checkIn: TodayCheckIn): CoachTake | null {
-  if (!isCheckInComplete(checkIn)) {
+  if (
+    checkIn.feeling === null ||
+    checkIn.sleep === null ||
+    checkIn.plan === null
+  ) {
     return null;
   }
 
-  const { feeling, sleep, plan } = checkIn;
-  const sentences = [
-    feelingOpener(feeling),
-    sleepLine(sleep, plan),
-    planLine(feeling, sleep, plan),
-  ].filter(Boolean);
+  const { feeling, sleep, plan, sleepQuality, feelingRating } = checkIn;
+  const opener =
+    feeling === "sore"
+      ? "Respect the sore area today."
+      : feeling === "tired" || (feelingRating != null && feelingRating <= 2)
+        ? "Energy looks limited — keep the day realistic."
+        : feeling === "strong" || (feelingRating != null && feelingRating >= 4)
+          ? "You’re in a solid place to make today count."
+          : "Steady start — keep the plan practical.";
+
+  const sleepBit =
+    sleepQuality === "bad" || sleep <= 2
+      ? "Sleep was rough, so protect recovery."
+      : sleepQuality === "very_good" || sleep >= 4
+        ? "Sleep was decent."
+        : "";
+
+  const planBit =
+    plan === "rest"
+      ? "Lean into rest and protein."
+      : plan === "hiit" || plan === "strength"
+        ? "Train with intent, not ego."
+        : "Keep movement sensible.";
 
   return {
     source: "preview",
-    text: sentences.join(" "),
+    text: [opener, sleepBit, planBit].filter(Boolean).join(" "),
   };
-}
-
-function feelingOpener(feeling: FeelingId): string {
-  switch (feeling) {
-    case "tired":
-      return "Got it. You're feeling a little tired today. Let's not force it.";
-    case "sore":
-      return "Thanks for flagging that. Let's respect it rather than train through it.";
-    case "strong":
-      return "Good. This sounds like a day to train with intent.";
-    case "good":
-      return "Good place to start. Let's keep the momentum going and make today productive.";
-    case "flat":
-      return "That's okay. We don't need every day to feel amazing. Let's keep the plan realistic and build some momentum.";
-  }
-}
-
-function sleepLine(sleep: SleepScore, plan: PlanId): string {
-  const training = plan === "strength" || plan === "hiit";
-
-  if (sleep <= 2 && training) {
-    return "Sleep was restless, so we'll keep this more recovery-conscious than usual.";
-  }
-  if (sleep >= 4 && plan === "strength") {
-    return "You slept well, so we can let this session have a bit more intent.";
-  }
-  if (sleep >= 4 && plan === "hiit") {
-    return "You slept well, which will help if you go hard.";
-  }
-  if (sleep <= 2) {
-    return "Sleep was restless, so we'll treat energy as limited.";
-  }
-  return "";
-}
-
-function planLine(
-  feeling: FeelingId,
-  sleep: SleepScore,
-  plan: PlanId,
-): string {
-  if (feeling === "sore") {
-    if (plan === "rest") {
-      return "A rest day is a good way to honour that. Keep food solid and let the area settle.";
-    }
-    if (plan === "unsure") {
-      return "We'll work around the sore area. No need to decide on a hard session until it feels right.";
-    }
-    return "We'll work around the sore area and keep the session productive.";
-  }
-
-  if (feeling === "tired" && plan === "hiit") {
-    return "If you train, keep the session focused and prioritise quality over volume. HIIT may feel harder today — that's expected.";
-  }
-
-  if (feeling === "tired" && plan === "strength") {
-    return "If you train, keep the session focused and prioritise quality over volume.";
-  }
-
-  if (feeling === "tired" && plan === "rest") {
-    return "Rest is the right call. Keep the day easy and don't turn recovery into another task.";
-  }
-
-  if (feeling === "tired" && plan === "recovery") {
-    return "Keep movement short and easy. Showing up gently is enough.";
-  }
-
-  if (feeling === "tired" && plan === "unsure") {
-    return "You don't have to decide yet. Default to something light unless you genuinely feel like training.";
-  }
-
-  if (feeling === "strong" && plan === "strength") {
-    return sleep >= 4
-      ? "Let's make the most of it without adding unnecessary volume."
-      : "Let's make the most of it, but skip the extra sets you don't need.";
-  }
-
-  if (feeling === "strong" && plan === "hiit") {
-    return "Let's make the most of it without turning it into a smash session.";
-  }
-
-  if (feeling === "strong" && (plan === "rest" || plan === "recovery")) {
-    return "If today is meant to be easier, keep it that way — the work will still be there tomorrow.";
-  }
-
-  if (plan === "rest") {
-    return "Use the rest well: protein, a little daylight, and no guilt for not training.";
-  }
-
-  if (plan === "unsure") {
-    return "No need to lock the whole day this minute. We'll keep things sensible until the plan is clear.";
-  }
-
-  if (plan === "recovery") {
-    return "Keep recovery as recovery — easy movement, not a hidden hard session.";
-  }
-
-  return "Stay present, hit the work in front of you, and leave a little in the tank.";
 }
 
 export function getDailyFocus(checkIn: TodayCheckIn): string[] {

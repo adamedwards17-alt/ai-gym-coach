@@ -27,6 +27,7 @@ import {
   mealTypeFromOption,
   mealTypeOptions,
   nutritionStatusOptions,
+  type MealTypeId,
   type MealTypeOptionId,
   type NutritionDaySummary,
   type NutritionEntryDraft,
@@ -50,8 +51,16 @@ const emptyDraft: NutritionEntryDraft = {
   status: "eaten",
 };
 
-export function NutritionLogExperience() {
-  const [draft, setDraft] = useState<NutritionEntryDraft>(emptyDraft);
+export function NutritionLogExperience({
+  initialMealType = null,
+}: {
+  initialMealType?: MealTypeId | null;
+}) {
+  const [draft, setDraft] = useState<NutritionEntryDraft>(() =>
+    initialMealType
+      ? { ...emptyDraft, mealType: initialMealType, mealTypeSkipped: false }
+      : emptyDraft,
+  );
   const [editing, setEditing] = useState<Step | null>(null);
   const [estimate, setEstimate] = useState<NutritionEstimate | null>(null);
   const [pendingEstimate, setPendingEstimate] =

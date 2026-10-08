@@ -5,7 +5,10 @@ import type {
 import type {
   CoachTakeSource,
   FeelingId,
+  FeelingRating,
   PlanId,
+  SleepHoursOption,
+  SleepQualityId,
   SleepScore,
 } from "@/lib/today";
 
@@ -18,6 +21,9 @@ export type CompletedCheckIn = {
   feeling: FeelingId;
   sleep: SleepScore;
   plan: PlanId;
+  sleepHours?: SleepHoursOption | null;
+  sleepQuality?: SleepQualityId | null;
+  feelingRating?: FeelingRating | null;
 };
 
 /** Profile fields sent to the AI — no ids, timestamps, or unused columns. */
