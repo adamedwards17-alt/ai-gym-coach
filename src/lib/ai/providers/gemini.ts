@@ -17,6 +17,7 @@ import type {
   CoachChatGenerationResult,
   CoachGenerationContext,
   FoodEstimateGenerationResult,
+  FoodEstimateRequest,
 } from "@/lib/ai/types";
 
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
@@ -107,7 +108,7 @@ export class GeminiProvider implements AiProvider {
   }
 
   async estimateFoodNutrition(
-    description: string,
+    input: FoodEstimateRequest,
   ): Promise<FoodEstimateGenerationResult> {
     const apiKey = getGeminiApiKey();
     if (!apiKey) {
@@ -117,7 +118,7 @@ export class GeminiProvider implements AiProvider {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: getGeminiModel(),
-      contents: buildFoodEstimateUserPrompt(description),
+      contents: buildFoodEstimateUserPrompt(input),
       config: {
         systemInstruction: FOOD_ESTIMATE_SYSTEM_PROMPT,
         temperature: 0.2,

@@ -256,17 +256,34 @@ function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
+export type FoodEstimationParseResult =
+  | { kind: "estimate"; estimate: NutritionEstimate }
+  | { kind: "clarification"; question: string }
+  | { kind: "invalid" };
+
 export function parseFoodEstimationResponse(
   raw: string,
-): NutritionEstimate | null {
+): FoodEstimationParseResult {
   const parsed = extractJsonObject(raw);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
+    return { kind: "invalid" };
   }
 
   const record = parsed as Record<string, unknown>;
+
+  if (record.needs_clarification === true) {
+    const question =
+      typeof record.question === "string" ? record.question.trim() : "";
+    if (!question) {
+      return { kind: "invalid" };
+    }
+    return { kind: "clarification", question };
+  }
+
   const totals =
-    record.totals && typeof record.totals === "object" && !Array.isArray(record.totals)
+    record.totals &&
+    typeof record.totals === "object" &&
+    !Array.isArray(record.totals)
       ? (record.totals as Record<string, unknown>)
       : null;
 
@@ -285,7 +302,7 @@ export function parseFoodEstimationResponse(
     carbsG < 0 ||
     fatG < 0
   ) {
-    return null;
+    return { kind: "invalid" };
   }
 
   const confidence = isEstimationConfidence(record.confidence)
@@ -326,20 +343,62 @@ export function parseFoodEstimationResponse(
   }
 
   return {
-    calories: Math.round(calories),
-    proteinG: Math.round(proteinG),
-    carbsG: Math.round(carbsG),
-    fatG: Math.round(fatG),
-    confidence,
-    source: "gemini",
-    items,
+    kind: "estimate",
+    estimate: {
+      calories: Math.round(calories),
+      proteinG: Math.round(proteinG),
+      carbsG: Math.round(carbsG),
+      fatG: Math.round(fatG),
+      confidence,
+      source: "gemini",
+      items,
+    },
+  };
+}
+
+export function estimateFromEntry(
+  entry: NutritionEntryRecord,
+): NutritionEstimate | null {
+  if (entry.calories_estimated == null) {
+    return null;
+  }
+
+  return {
+    calories: Math.round(entry.calories_estimated),
+    proteinG: Math.round(Number(entry.protein_g_estimated ?? 0)),
+    carbsG: Math.round(Number(entry.carbs_g_estimated ?? 0)),
+    fatG: Math.round(Number(entry.fat_g_estimated ?? 0)),
+    confidence: entry.estimation_confidence ?? "medium",
+    source: entry.estimation_source === "user" ? "user" : "gemini",
+    items: [],
   };
 }
 
 export function formatEstimateSummary(estimate: NutritionEstimate): string {
   const macros = `${estimate.proteinG}g protein · ${estimate.carbsG}g carbs · ${estimate.fatG}g fat`;
+  if (estimate.source === "user") {
+    return `${estimate.calories} kcal · ${macros}`;
+  }
   if (estimate.confidence === "low") {
     return `~${estimate.calories} kcal · rough estimate · ${macros}`;
   }
   return `~${estimate.calories} kcal · ${macros}`;
+}
+
+export function formatEntryNutritionLine(
+  entry: NutritionEntryRecord,
+): string | null {
+  if (entry.calories_estimated == null) {
+    return null;
+  }
+  const protein = Math.round(Number(entry.protein_g_estimated ?? 0));
+  const carbs = Math.round(Number(entry.carbs_g_estimated ?? 0));
+  const fat = Math.round(Number(entry.fat_g_estimated ?? 0));
+  const sourceLabel =
+    entry.estimation_source === "user"
+      ? "edited"
+      : entry.estimation_confidence === "low"
+        ? "rough estimate"
+        : "estimated";
+  return `~${entry.calories_estimated} kcal · ${protein}g P · ${carbs}g C · ${fat}g F · ${sourceLabel}`;
 }

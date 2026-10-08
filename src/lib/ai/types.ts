@@ -135,8 +135,16 @@ export type FoodEstimateGenerationResult = {
   rawText: string;
 };
 
+export type FoodEstimateRequest = {
+  description: string;
+  clarificationAnswer?: string | null;
+  skipClarification?: boolean;
+};
+
 export interface AiProvider {
   generateCoachTake(context: CoachGenerationContext): Promise<string>;
   generateCoachChat(context: CoachChatContext): Promise<CoachChatGenerationResult>;
-  estimateFoodNutrition(description: string): Promise<FoodEstimateGenerationResult>;
+  estimateFoodNutrition(
+    input: FoodEstimateRequest,
+  ): Promise<FoodEstimateGenerationResult>;
 }
