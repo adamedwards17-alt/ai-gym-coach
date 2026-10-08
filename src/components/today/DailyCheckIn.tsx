@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CoachMessage } from "@/components/today/CoachMessage";
+import { getDisplayName } from "@/lib/profile";
 import { DailyFocus } from "@/components/today/DailyFocus";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { SleepRating } from "@/components/today/SleepRating";
 import { UserResponse } from "@/components/today/UserResponse";
-import { getDisplayName } from "@/lib/profile";
 import {
   feelingOptions,
   getCoachTake,
@@ -31,10 +31,10 @@ const emptyCheckIn: TodayCheckIn = {
   plan: null,
 };
 
-export function DailyCheckIn() {
+export function DailyCheckIn({ displayName }: { displayName: string }) {
   const [checkIn, setCheckIn] = useState<TodayCheckIn>(emptyCheckIn);
   const hour = new Date().getHours();
-  const greeting = greetingForHour(hour, getDisplayName());
+  const greeting = greetingForHour(hour, getDisplayName(displayName));
 
   const step: Step = !checkIn.feeling
     ? "feeling"

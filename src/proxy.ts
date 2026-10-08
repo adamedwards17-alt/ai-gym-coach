@@ -1,18 +1,26 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import { copyCookies } from "@/lib/auth/copy-cookies";
+import { isPublicPath, LOGIN_PATH } from "@/lib/auth/paths";
 import {
   getSupabasePublicEnv,
   isSupabaseConfigured,
 } from "@/lib/supabase/env";
 
 /**
- * Keeps Supabase cookies in sync on each request.
- * Does not require sign-in and does not block any pages.
+ * Refreshes Supabase auth cookies and keeps private app routes signed-in.
  */
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
 
   if (!isSupabaseConfigured()) {
+    if (!isPublicPath(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = LOGIN_PATH;
+      url.searchParams.set("error", "config");
+      return NextResponse.redirect(url);
+    }
     return supabaseResponse;
   }
 
@@ -41,7 +49,15 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getClaims();
+  const { data } = await supabase.auth.getClaims();
+  const isAuthenticated = Boolean(data?.claims);
+
+  if (!isAuthenticated && !isPublicPath(pathname)) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = LOGIN_PATH;
+    redirectUrl.search = "";
+    return copyCookies(supabaseResponse, NextResponse.redirect(redirectUrl));
+  }
 
   return supabaseResponse;
 }

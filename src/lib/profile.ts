@@ -1,11 +1,8 @@
 /**
- * Temporary stand-in for the signed-in user.
- * Later, replace this with the name from authentication / Supabase.
+ * Profile display helpers. The signed-in name is loaded from Supabase
+ * on the Today page and passed into the check-in.
  */
-export const previewProfile = {
-  displayName: "Adam",
-};
 
-export function getDisplayName(): string {
-  return previewProfile.displayName.trim();
+export function getDisplayName(displayName: string): string {
+  return displayName.trim();
 }

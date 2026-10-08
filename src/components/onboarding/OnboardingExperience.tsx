@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AgeSlider } from "@/components/onboarding/AgeSlider";
 import { MeasureInput } from "@/components/onboarding/MeasureInput";
@@ -42,7 +42,12 @@ import {
 const defaultHeight: HeightAnswer = { unit: "cm", cm: 175 };
 const defaultWeight: WeightAnswer = { unit: "kg", kg: 80 };
 
-export function OnboardingExperience() {
+export function OnboardingExperience({
+  suggestedName = "",
+}: {
+  suggestedName?: string;
+}) {
+  const router = useRouter();
   const [draft, setDraft] = useState<OnboardingDraft>({});
   const [editingId, setEditingId] = useState<OnboardingStepId | null>(null);
   const [ready, setReady] = useState(false);
@@ -107,10 +112,18 @@ export function OnboardingExperience() {
     const result = await persistOnboarding(draft);
     setPersistResult(result);
     setSaving(false);
+    if (result.status === "supabase") {
+      router.push("/today");
+      router.refresh();
+    }
   }
 
   if (!ready) {
-    return null;
+    return (
+      <p className="px-5 py-16 text-center text-[13px] text-muted">
+        Loading…
+      </p>
+    );
   }
 
   return (
@@ -154,6 +167,7 @@ export function OnboardingExperience() {
               key={currentId}
               id={currentId}
               draft={draft}
+              suggestedName={suggestedName}
               onComplete={complete}
             />
           </div>
@@ -162,34 +176,31 @@ export function OnboardingExperience() {
             <CoachMessage>
               {`Thanks${draft.displayName ? `, ${draft.displayName}` : ""}. I’ve got enough to start coaching you — training, food, sleep, and how you like to be pushed.`}
             </CoachMessage>
-            {persistResult ? (
+            {persistResult?.status === "supabase" ? (
               <p className="pl-10 text-[13px] leading-6 text-muted">
-                {persistResult.status === "supabase"
-                  ? "Saved to your profile."
-                  : "Saved on this device for now. It isn’t linked to an account yet — that happens when sign-in is added."}
+                Saved to your profile. Taking you to today…
               </p>
             ) : (
-              <div className="pl-10">
+              <div className="flex flex-col gap-3 pl-10">
+                {persistResult?.status === "local" ? (
+                  <p role="alert" className="text-[13px] leading-6 text-muted">
+                    {persistResult.message}
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   disabled={saving}
-                  className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+                  className="inline-flex h-11 w-fit items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
                   onClick={() => void finish()}
                 >
-                  {saving ? "Saving…" : "Save and continue"}
+                  {saving
+                    ? "Saving…"
+                    : persistResult
+                      ? "Try again"
+                      : "Save and continue"}
                 </button>
               </div>
             )}
-            {persistResult ? (
-              <div className="pl-10">
-                <Link
-                  href="/today"
-                  className="text-[13px] text-muted hover:text-foreground"
-                >
-                  Start today
-                </Link>
-              </div>
-            ) : null}
           </div>
         )}
       </div>
@@ -200,10 +211,12 @@ export function OnboardingExperience() {
 function StepControl({
   id,
   draft,
+  suggestedName,
   onComplete,
 }: {
   id: OnboardingStepId;
   draft: OnboardingDraft;
+  suggestedName: string;
   onComplete: (draft: OnboardingDraft) => void;
 }) {
   switch (id) {
@@ -212,7 +225,7 @@ function StepControl({
         <TextReply
           label="Your name"
           placeholder="Your first name"
-          initialValue={draft.displayName ?? ""}
+          initialValue={draft.displayName ?? suggestedName}
           onSubmit={(displayName) => onComplete({ ...draft, displayName })}
         />
       );

@@ -5,8 +5,12 @@ import { usePathname } from "next/navigation";
 import { CoachMark } from "@/components/CoachMark";
 import { appNavItems } from "@/lib/nav";
 
-export function MobileNav() {
+export function MobileNav({ signedIn }: { signedIn: boolean }) {
   const pathname = usePathname();
+
+  if (!signedIn) {
+    return null;
+  }
 
   return (
     <nav

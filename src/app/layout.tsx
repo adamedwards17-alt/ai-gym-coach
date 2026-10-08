@@ -3,6 +3,7 @@ import { Geist, Instrument_Serif } from "next/font/google";
 import { MobileNav } from "@/components/MobileNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { getCurrentUser } from "@/lib/auth/session";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,17 +26,21 @@ export const metadata: Metadata = {
     "An AI-powered personal fitness coach to help you get leaner, build muscle, and stay consistent.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const signedIn = Boolean(await getCurrentUser());
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground">
-        <SiteHeader />
-        <main className="flex-1 pb-20 md:pb-0">{children}</main>
-        <SiteFooter />
-        <MobileNav />
+        <SiteHeader signedIn={signedIn} />
+        <main className={signedIn ? "flex-1 pb-20 md:pb-0" : "flex-1"}>
+          {children}
+        </main>
+        {signedIn ? <SiteFooter /> : null}
+        <MobileNav signedIn={signedIn} />
       </body>
     </html>
   );

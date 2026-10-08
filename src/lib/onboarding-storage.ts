@@ -27,7 +27,11 @@ export function saveOnboardingDraft(draft: OnboardingDraft) {
 
 export type PersistResult =
   | { status: "supabase" }
-  | { status: "local"; reason: "no-session" | "not-configured" | "error" };
+  | {
+      status: "local";
+      reason: "no-session" | "not-configured" | "error";
+      message: string;
+    };
 
 export async function persistOnboarding(
   draft: OnboardingDraft,
@@ -35,11 +39,19 @@ export async function persistOnboarding(
   saveOnboardingDraft(draft);
 
   if (!isOnboardingComplete(draft)) {
-    return { status: "local", reason: "error" };
+    return {
+      status: "local",
+      reason: "error",
+      message: "A few answers are still missing.",
+    };
   }
 
   if (!isSupabaseConfigured()) {
-    return { status: "local", reason: "not-configured" };
+    return {
+      status: "local",
+      reason: "not-configured",
+      message: "Your profile couldn’t be saved because Supabase isn’t connected.",
+    };
   }
 
   try {
@@ -49,7 +61,11 @@ export async function persistOnboarding(
     } = await supabase.auth.getUser();
 
     if (!user) {
-      return { status: "local", reason: "no-session" };
+      return {
+        status: "local",
+        reason: "no-session",
+        message: "You’re not signed in. Sign in with Google, then save again.",
+      };
     }
 
     const { error } = await supabase.from("profiles").upsert({
@@ -58,11 +74,21 @@ export async function persistOnboarding(
     });
 
     if (error) {
-      return { status: "local", reason: "error" };
+      return {
+        status: "local",
+        reason: "error",
+        message:
+          "Your profile couldn’t be saved. Check you’re signed in and try again.",
+      };
     }
 
     return { status: "supabase" };
   } catch {
-    return { status: "local", reason: "error" };
+    return {
+      status: "local",
+      reason: "error",
+      message:
+        "Your profile couldn’t be saved. Check you’re signed in and try again.",
+    };
   }
 }
