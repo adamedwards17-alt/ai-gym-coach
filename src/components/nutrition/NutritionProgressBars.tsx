@@ -8,7 +8,10 @@ import {
 type NutritionProgressBarsProps = {
   summary: NutritionDaySummary;
   now?: Date;
-  /** Compact Today layout: calories headline + protein/carbs/fat row. */
+  /**
+   * Shared Today/Nutrition layout: calorie headline + protein/carbs/fat row.
+   * Prefer this for day summaries so both pages stay visually consistent.
+   */
   compact?: boolean;
 };
 
@@ -121,7 +124,7 @@ function CompactMacroCell({ item }: { item: MacroProgress }) {
   );
 }
 
-function CompactTodayLayout({ progress }: { progress: MacroProgress[] }) {
+function CompactNutritionLayout({ progress }: { progress: MacroProgress[] }) {
   const calories = progress.find((item) => item.id === "calories");
   const macros = progress.filter(
     (item) =>
@@ -135,7 +138,7 @@ function CompactTodayLayout({ progress }: { progress: MacroProgress[] }) {
   const calorieStatus = calories.statusLabel ?? toneText(calories.tone);
 
   return (
-    <div aria-label="Today’s nutrition progress" className="flex flex-col gap-4">
+    <div aria-label="Nutrition progress" className="flex flex-col gap-4">
       <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-transparent px-4 py-4">
         <div className="flex items-end justify-between gap-3">
           <div>
@@ -183,14 +186,11 @@ export function NutritionProgressBars({
   }
 
   if (compact) {
-    return <CompactTodayLayout progress={progress} />;
+    return <CompactNutritionLayout progress={progress} />;
   }
 
   return (
-    <ul
-      aria-label="Today’s nutrition progress"
-      className="flex flex-col gap-4"
-    >
+    <ul aria-label="Nutrition progress" className="flex flex-col gap-4">
       {progress.map((item) => (
         <ListRow key={item.id} item={item} compact={false} />
       ))}

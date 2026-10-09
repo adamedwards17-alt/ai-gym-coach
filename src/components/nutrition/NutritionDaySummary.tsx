@@ -23,7 +23,7 @@ export function NutritionDaySummaryCard({
 
   return (
     <section className="mb-6">
-      <NutritionProgressBars summary={summary} now={now} />
+      <NutritionProgressBars summary={summary} now={now} compact />
     </section>
   );
 }
