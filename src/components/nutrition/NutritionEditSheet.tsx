@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { NutritionEntryRecord } from "@/lib/nutrition";
+import { entryDisplayTitle, type NutritionEntryRecord } from "@/lib/nutrition";
 
 type NutritionEditSheetProps = {
   entry: NutritionEntryRecord;
@@ -10,6 +10,7 @@ type NutritionEditSheetProps = {
   onCancel: () => void;
   onSave: (values: {
     description: string;
+    displayName: string;
     calories: number;
     proteinG: number;
     carbsG: number;
@@ -24,6 +25,7 @@ export function NutritionEditSheet({
   onCancel,
   onSave,
 }: NutritionEditSheetProps) {
+  const [displayName, setDisplayName] = useState(entryDisplayTitle(entry));
   const [description, setDescription] = useState(entry.description);
   const [calories, setCalories] = useState(
     String(entry.calories_estimated ?? 0),
@@ -59,12 +61,22 @@ export function NutritionEditSheet({
           Edit entry
         </p>
         <p className="mt-1 text-[13px] text-muted">
-          Saving marks these values as manually edited.
+          Renaming keeps your nutrition values. Saving marks macros as manually
+          edited.
         </p>
 
         <div className="mt-5 flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] text-muted">Description</span>
+            <span className="text-[12px] text-muted">Display name</span>
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted">Ingredients / details</span>
             <input
               value={description}
               onChange={(event) => setDescription(event.target.value)}
@@ -108,6 +120,7 @@ export function NutritionEditSheet({
             onClick={() =>
               onSave({
                 description,
+                displayName,
                 calories: Number(calories),
                 proteinG: Number(proteinG),
                 carbsG: Number(carbsG),

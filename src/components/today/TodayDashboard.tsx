@@ -10,10 +10,12 @@ import {
   useTransition,
 } from "react";
 import { startMealInspirationChat } from "@/app/actions/coach";
+import { stopNutritionHabit } from "@/app/actions/nutrition";
 import {
   loadTodayDashboard,
   type TodayDashboardData,
 } from "@/app/actions/today-dashboard";
+import { NutritionProgressBars } from "@/components/nutrition/NutritionProgressBars";
 import { MorningCheckIn } from "@/components/today/MorningCheckIn";
 import {
   formatSleepHoursLabel,
@@ -23,7 +25,14 @@ import {
 } from "@/lib/check-ins";
 import { getLocalCoachDate } from "@/lib/coach";
 import { resolveCoachMoment, type CoachMoment } from "@/lib/coach-moment";
+import { detectFoodHabits, type DetectedHabit } from "@/lib/food-habits";
+import {
+  markHabitPrompted,
+  readPromptedHabitKeys,
+} from "@/lib/habit-session";
+import { entryDisplayTitle } from "@/lib/nutrition";
 import { resolveNextAction, type NextAction } from "@/lib/next-action";
+import { writePendingFoodLog } from "@/lib/pending-food-log";
 import { getDisplayName } from "@/lib/profile";
 import {
   greetingForHour,
@@ -44,8 +53,10 @@ type TodayDashboardProps = {
 
 function NutritionSection({
   data,
+  now,
 }: {
   data: TodayDashboardData;
+  now: Date;
 }) {
   const summary = data.nutrition;
   if (!summary) {
@@ -80,8 +91,6 @@ function NutritionSection({
     );
   }
 
-  const { targets, consumed, remaining } = summary;
-
   return (
     <section className="today-reveal">
       <div className="flex items-baseline justify-between gap-3">
@@ -96,38 +105,8 @@ function NutritionSection({
         </Link>
       </div>
 
-      <p className="mt-5 font-serif text-[2.35rem] leading-none tracking-tight">
-        {consumed.calories.toLocaleString()}
-        <span className="text-[1.15rem] text-muted">
-          {" "}
-          / {targets.daily_calories.toLocaleString()} kcal
-        </span>
-      </p>
-      <p className="mt-2 text-[14px] text-muted">
-        {remaining.calories < 0
-          ? `${Math.abs(remaining.calories).toLocaleString()} kcal over`
-          : `${remaining.calories.toLocaleString()} kcal remaining`}
-      </p>
-
-      <div className="mt-6 space-y-2.5 text-[15px] leading-6">
-        <p>
-          Protein{" "}
-          <span className="text-foreground">
-            {consumed.proteinG} / {targets.protein_g}g
-          </span>
-        </p>
-        <p>
-          Carbs{" "}
-          <span className="text-foreground">
-            {consumed.carbsG} / {targets.carbs_g}g
-          </span>
-        </p>
-        <p>
-          Fat{" "}
-          <span className="text-foreground">
-            {consumed.fatG} / {targets.fat_g}g
-          </span>
-        </p>
+      <div className="mt-5">
+        <NutritionProgressBars summary={summary} now={now} compact />
       </div>
 
       <Link
@@ -262,6 +241,10 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
   const [panel, setPanel] = useState<Panel>("dashboard");
   const [now, setNow] = useState(() => new Date());
   const [inspirationPending, startInspiration] = useTransition();
+  const [habitPending, startHabitAction] = useTransition();
+  const [dismissedHabitKeys, setDismissedHabitKeys] = useState<string[]>([]);
+  const [promptedHabitKeys, setPromptedHabitKeys] = useState<string[]>([]);
+  const [habitAck, setHabitAck] = useState<string | null>(null);
   const name = getDisplayName(displayName);
   const hour = now.getHours();
   const greeting = greetingForHour(hour, name);
@@ -303,6 +286,19 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     return () => window.clearInterval(id);
   }, []);
 
+  const [activeHabitMoment, setActiveHabitMoment] =
+    useState<CoachMoment | null>(null);
+  const [habitStorageTick, setHabitStorageTick] = useState(0);
+
+  useEffect(() => {
+    if (!data?.localDate) {
+      return;
+    }
+    queueMicrotask(() => {
+      setPromptedHabitKeys(readPromptedHabitKeys(data.localDate));
+    });
+  }, [data?.localDate, habitStorageTick]);
+
   const nextAction: NextAction | null = useMemo(() => {
     if (!data) {
       return null;
@@ -316,6 +312,34 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     });
   }, [data, now]);
 
+  const detectedHabits: DetectedHabit[] = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+    const localDate = data.localDate;
+    // Keep the currently sticky habit visible in detection until dismissed.
+    const prompted = [...promptedHabitKeys, ...dismissedHabitKeys].filter(
+      (key) => key !== activeHabitMoment?.habitKey,
+    );
+    const todayLabels = [
+      ...(data.nutrition?.eatenEntries ?? []),
+      ...(data.nutrition?.plannedEntries ?? []),
+    ].flatMap((entry) => [
+      entryDisplayTitle(entry),
+      entry.description,
+      ...(entry.search_aliases ?? []),
+    ]);
+
+    return detectFoodHabits({
+      entries: data.habitHistory,
+      localDate,
+      now,
+      stoppedKeys: data.stoppedHabitKeys,
+      promptedTodayKeys: prompted,
+      loggedTodayLabels: todayLabels,
+    });
+  }, [data, now, dismissedHabitKeys, promptedHabitKeys, activeHabitMoment?.habitKey]);
+
   const coachMoment: CoachMoment | null = useMemo(() => {
     if (!data) {
       return null;
@@ -327,8 +351,122 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
       loggedMealTypes: data.loggedMealTypes,
       hasTrainingSession: data.hasTrainingSession,
       nutrition: data.nutrition,
+      detectedHabits,
     });
-  }, [data, now]);
+  }, [data, now, detectedHabits]);
+
+  // Keep the habit sticky until answered; mark prompted so refresh won't re-ask.
+  useEffect(() => {
+    if (
+      !coachMoment ||
+      coachMoment.type !== "habit" ||
+      !coachMoment.habitKey ||
+      activeHabitMoment
+    ) {
+      return;
+    }
+    const localDate = data?.localDate ?? getLocalCheckInDate();
+    const habit = coachMoment;
+    queueMicrotask(() => {
+      markHabitPrompted(localDate, habit.habitKey!);
+      setActiveHabitMoment(habit);
+      setHabitStorageTick((tick) => tick + 1);
+    });
+  }, [coachMoment, data?.localDate, activeHabitMoment]);
+
+  const displayCoachMoment: CoachMoment | null =
+    activeHabitMoment &&
+    !dismissedHabitKeys.includes(activeHabitMoment.habitKey ?? "")
+      ? activeHabitMoment
+      : coachMoment;
+
+  function dismissHabitForToday(habitKey: string, message?: string) {
+    const localDate = data?.localDate ?? getLocalCheckInDate();
+    markHabitPrompted(localDate, habitKey);
+    setDismissedHabitKeys((keys) =>
+      keys.includes(habitKey) ? keys : [...keys, habitKey],
+    );
+    setActiveHabitMoment(null);
+    setHabitStorageTick((tick) => tick + 1);
+    setHabitAck(message ?? null);
+  }
+
+  function handleHabitYes(moment: CoachMoment) {
+    if (!moment.habitKey || !moment.habitDescription) {
+      return;
+    }
+    const habit = detectedHabits.find((item) => item.key === moment.habitKey);
+    const localDate = data?.localDate ?? getLocalCheckInDate();
+    markHabitPrompted(localDate, moment.habitKey);
+    setDismissedHabitKeys((keys) =>
+      keys.includes(moment.habitKey!) ? keys : [...keys, moment.habitKey!],
+    );
+    setActiveHabitMoment(null);
+    setHabitStorageTick((tick) => tick + 1);
+
+    // Only hand off saved macros when we actually have them — never invent zeros.
+    writePendingFoodLog({
+      description: moment.habitDescription,
+      displayName: moment.habitLabel ?? moment.habitDescription,
+      mealType: moment.mealType ?? habit?.mealType ?? null,
+      estimate:
+        habit?.sampleCalories != null
+          ? {
+              calories: Math.round(habit.sampleCalories),
+              proteinG: Math.round(habit.sampleProteinG ?? 0),
+              carbsG: Math.round(habit.sampleCarbsG ?? 0),
+              fatG: Math.round(habit.sampleFatG ?? 0),
+              confidence: "medium",
+              source: "user",
+              displayName: moment.habitLabel ?? null,
+              items: [],
+            }
+          : null,
+      brand: null,
+      barcode: null,
+    });
+    const meal = moment.mealType ? `?meal=${moment.mealType}` : "";
+    router.push(`/nutrition${meal}`);
+  }
+
+  function handleHabitNo(moment: CoachMoment) {
+    if (!moment.habitKey) {
+      return;
+    }
+    dismissHabitForToday(
+      moment.habitKey,
+      "Got it — won’t ask about that again today.",
+    );
+  }
+
+  function handleHabitStopped(moment: CoachMoment) {
+    if (!moment.habitKey) {
+      return;
+    }
+    startHabitAction(async () => {
+      const result = await stopNutritionHabit({ habitKey: moment.habitKey! });
+      if (result.status === "stopped") {
+        setData((current) =>
+          current
+            ? {
+                ...current,
+                stoppedHabitKeys: current.stoppedHabitKeys.includes(
+                  moment.habitKey!,
+                )
+                  ? current.stoppedHabitKeys
+                  : [...current.stoppedHabitKeys, moment.habitKey!],
+              }
+            : current,
+        );
+        dismissHabitForToday(
+          moment.habitKey!,
+          "Understood — I won’t prompt for that habit anymore.",
+        );
+      } else {
+        setInspirationError(result.message);
+      }
+    });
+  }
 
   const editInitial: TodayCheckIn | null = useMemo(() => {
     if (!data?.checkIn) {
@@ -444,7 +582,7 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
 
       {data ? (
         <div className="flex flex-col gap-11">
-          <NutritionSection data={data} />
+          <NutritionSection data={data} now={now} />
           <TrainingSection data={data} />
           <RecoverySection
             data={data}
@@ -452,48 +590,96 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
             onEdit={() => setPanel("check-in")}
           />
 
-          {coachMoment ? (
+          {habitAck ? (
+            <p className="today-reveal text-[14px] leading-6 text-muted">
+              {habitAck}
+            </p>
+          ) : null}
+
+          {displayCoachMoment ? (
             <section className="today-reveal">
               <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
                 Coach
               </h2>
               <p className="mt-4 font-serif text-[1.45rem] leading-snug tracking-tight text-foreground">
-                {coachMoment.title}
+                {displayCoachMoment.title}
               </p>
-              {coachMoment.description ? (
+              {displayCoachMoment.description ? (
                 <p className="mt-2 text-[14px] leading-6 text-muted">
-                  {coachMoment.description}
+                  {displayCoachMoment.description}
                 </p>
               ) : null}
 
-              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                {coachMoment.type === "morning_check_in" ? (
+              {displayCoachMoment.type === "habit" ? (
+                <div className="mt-4 flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={habitPending}
+                      onClick={() => handleHabitYes(displayCoachMoment)}
+                      className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
+                    >
+                      Yes — log it
+                    </button>
+                    <button
+                      type="button"
+                      disabled={habitPending}
+                      onClick={() => handleHabitNo(displayCoachMoment)}
+                      className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground disabled:opacity-60"
+                    >
+                      Not today
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setPanel("check-in")}
-                    className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                    disabled={habitPending}
+                    onClick={() => handleHabitStopped(displayCoachMoment)}
+                    className="w-fit text-[12px] text-muted transition-colors hover:text-foreground disabled:opacity-60"
                   >
-                    Start check-in
+                    I don’t have this habit anymore
                   </button>
-                ) : null}
-                {coachMoment.showInspirationCta ? (
-                  <button
-                    type="button"
-                    disabled={inspirationPending}
-                    onClick={handleNeedInspiration}
-                    className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
-                  >
-                    {inspirationPending ? "Opening…" : "Need inspiration"}
-                  </button>
-                ) : (
-                  <Link
-                    href="/coach"
-                    className="text-[13px] text-muted transition-colors hover:text-foreground"
-                  >
-                    Ask Coach
-                  </Link>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {displayCoachMoment.type === "morning_check_in" ? (
+                    <button
+                      type="button"
+                      onClick={() => setPanel("check-in")}
+                      className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                    >
+                      Start check-in
+                    </button>
+                  ) : null}
+                  {displayCoachMoment.type === "breakfast" ||
+                  displayCoachMoment.type === "lunch" ||
+                  displayCoachMoment.type === "snack" ||
+                  displayCoachMoment.type === "dinner" ? (
+                    <Link
+                      href={`/nutrition?meal=${displayCoachMoment.type}`}
+                      className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                    >
+                      Log {displayCoachMoment.type}
+                    </Link>
+                  ) : null}
+                  {displayCoachMoment.showInspirationCta ? (
+                    <button
+                      type="button"
+                      disabled={inspirationPending}
+                      onClick={handleNeedInspiration}
+                      className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
+                    >
+                      {inspirationPending ? "Opening…" : "Need inspiration"}
+                    </button>
+                  ) : (
+                    <Link
+                      href="/coach"
+                      className="text-[13px] text-muted transition-colors hover:text-foreground"
+                    >
+                      Ask Coach
+                    </Link>
+                  )}
+                </div>
+              )}
               {inspirationError ? (
                 <p role="alert" className="mt-3 text-[13px] text-muted">
                   {inspirationError}

@@ -23,6 +23,10 @@ export const NUTRITION_ENTRY_SELECT = [
   "logged_date",
   "meal_type",
   "description",
+  "display_name",
+  "search_aliases",
+  "barcode",
+  "brand",
   "status",
   "calories_estimated",
   "protein_g_estimated",
@@ -71,11 +75,28 @@ export function toNutritionEntryRecord(
 
   const status = isNutritionEntryStatus(row.status) ? row.status : "eaten";
 
+  const searchAliases = Array.isArray(row.search_aliases)
+    ? row.search_aliases.filter((value): value is string => typeof value === "string")
+    : [];
+
   return {
     id: row.id,
     logged_date: row.logged_date,
     meal_type: mealType,
     description: row.description,
+    display_name:
+      typeof row.display_name === "string" && row.display_name.trim()
+        ? row.display_name.trim()
+        : null,
+    search_aliases: searchAliases,
+    barcode:
+      typeof row.barcode === "string" && row.barcode.trim()
+        ? row.barcode.trim()
+        : null,
+    brand:
+      typeof row.brand === "string" && row.brand.trim()
+        ? row.brand.trim()
+        : null,
     status,
     calories_estimated: toNullableFiniteNumber(row.calories_estimated),
     protein_g_estimated: toNullableFiniteNumber(row.protein_g_estimated),

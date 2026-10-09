@@ -11,6 +11,7 @@ import {
   saveNutritionEntry,
   updateNutritionEntry,
 } from "@/app/actions/nutrition";
+import { BarcodeScanPanel } from "@/components/nutrition/BarcodeScanPanel";
 import { NutritionConfirmDialog } from "@/components/nutrition/NutritionConfirmDialog";
 import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySummary";
 import { NutritionDescriptionInput } from "@/components/nutrition/NutritionDescriptionInput";
@@ -24,6 +25,7 @@ import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
 import { getLocalCoachDate } from "@/lib/coach";
 import {
+  entryDisplayTitle,
   estimateFromEntry,
   formatEntryNutritionLine,
   formatEstimateSummary,
@@ -42,6 +44,9 @@ import {
   type NutritionEntryStatus,
   type NutritionEstimate,
 } from "@/lib/nutrition";
+import { consumePendingFoodLog } from "@/lib/pending-food-log";
+
+type EntryMode = "search" | "describe" | "barcode";
 
 const PRIMARY_MEALS = ["breakfast", "lunch", "snack", "dinner"] as const;
 
@@ -150,9 +155,15 @@ export function NutritionLogExperience({
   const [deletePending, setDeletePending] = useState(false);
   const [inspirationError, setInspirationError] = useState<string | null>(null);
   const [inspirationPending, startInspiration] = useTransition();
+  const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
+  const [barcodeMeta, setBarcodeMeta] = useState<{
+    barcode: string;
+    brand: string | null;
+  } | null>(null);
+  const [clock, setClock] = useState(() => new Date());
 
   const today = getLocalLoggedDate();
-  const hour = new Date().getHours();
+  const hour = clock.getHours();
 
   const step: Step = useMemo(() => {
     if (editing) {
@@ -257,6 +268,67 @@ export function NutritionLogExperience({
     };
   }, []);
 
+  useEffect(() => {
+    const id = window.setInterval(() => setClock(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Habit confirmation hand-off from Today (sessionStorage). Client-only.
+  useEffect(() => {
+    const pending = consumePendingFoodLog();
+    if (!pending) {
+      return;
+    }
+
+    const apply = () => {
+      setLoggingOpen(true);
+      setJustSaved(false);
+      setSaveError(null);
+      setBarcodeMeta(
+        pending.barcode
+          ? { barcode: pending.barcode, brand: pending.brand ?? null }
+          : null,
+      );
+
+      if (pending.estimate) {
+        const synthetic: NutritionEntryRecord = {
+          id: `pending-${Date.now()}`,
+          logged_date: getLocalLoggedDate(),
+          meal_type: pending.mealType,
+          description: pending.description,
+          display_name: pending.displayName,
+          search_aliases: [],
+          barcode: pending.barcode ?? null,
+          brand: pending.brand ?? null,
+          status: "eaten",
+          calories_estimated: pending.estimate.calories,
+          protein_g_estimated: pending.estimate.proteinG,
+          carbs_g_estimated: pending.estimate.carbsG,
+          fat_g_estimated: pending.estimate.fatG,
+          estimation_confidence: pending.estimate.confidence,
+          estimation_source: pending.estimate.source,
+          created_at: new Date().toISOString(),
+        };
+        setRecentFood({ entry: synthetic, estimate: pending.estimate });
+        setDraft(emptyDraft);
+        setEntryMode(null);
+        return;
+      }
+
+      setRecentFood(null);
+      setEntryMode("describe");
+      setDraft({
+        description: pending.description,
+        mealType: pending.mealType,
+        mealTypeSkipped: pending.mealType == null,
+        status: "eaten",
+      });
+      setEditing(pending.mealType == null ? "mealType" : null);
+    };
+
+    queueMicrotask(apply);
+  }, []);
+
   async function runEstimate(
     description: string,
     options?: {
@@ -312,6 +384,8 @@ export function NutritionLogExperience({
       mealType: draft.mealTypeSkipped ? null : draft.mealType,
       status: draft.status,
       estimate,
+      barcode: barcodeMeta?.barcode ?? null,
+      brand: barcodeMeta?.brand ?? null,
     });
 
     if (result.status !== "saved") {
@@ -327,6 +401,8 @@ export function NutritionLogExperience({
     setClarificationQuestion(null);
     setFromSuggestion(false);
     setRecentFood(null);
+    setBarcodeMeta(null);
+    setEntryMode(null);
     setEditing(null);
     setJustSaved(true);
     setLoggingOpen(false);
@@ -345,6 +421,8 @@ export function NutritionLogExperience({
     setClarificationAnswer("");
     setFromSuggestion(false);
     setRecentFood(null);
+    setBarcodeMeta(null);
+    setEntryMode(null);
     setEditing(null);
     setSaveError(null);
     setJustSaved(false);
@@ -368,6 +446,8 @@ export function NutritionLogExperience({
     setClarificationAnswer("");
     setFromSuggestion(false);
     setRecentFood(null);
+    setBarcodeMeta(null);
+    setEntryMode(null);
     setDraft(emptyDraft);
     setEditing(null);
     setComposerKey((key) => key + 1);
@@ -436,7 +516,15 @@ export function NutritionLogExperience({
       description: values.description,
       mealType: values.mealType,
       status: values.status,
-      estimate: values.estimate,
+      estimate: {
+        ...values.estimate,
+        displayName:
+          values.estimate.displayName ??
+          recentFood?.entry.display_name ??
+          null,
+      },
+      barcode: recentFood?.entry.barcode ?? barcodeMeta?.barcode ?? null,
+      brand: recentFood?.entry.brand ?? barcodeMeta?.brand ?? null,
     });
 
     if (result.status !== "saved") {
@@ -452,6 +540,8 @@ export function NutritionLogExperience({
     setPendingEstimate(null);
     setClarificationQuestion(null);
     setFromSuggestion(false);
+    setBarcodeMeta(null);
+    setEntryMode(null);
     setEditing(null);
     setJustSaved(true);
     setLoggingOpen(false);
@@ -514,6 +604,7 @@ export function NutritionLogExperience({
 
   async function handleSaveEdit(values: {
     description: string;
+    displayName: string;
     calories: number;
     proteinG: number;
     carbsG: number;
@@ -526,7 +617,12 @@ export function NutritionLogExperience({
     setEditError(null);
     const result = await updateNutritionEntry({
       entryId: editEntry.id,
-      ...values,
+      description: values.description,
+      displayName: values.displayName,
+      calories: values.calories,
+      proteinG: values.proteinG,
+      carbsG: values.carbsG,
+      fatG: values.fatG,
     });
     setEditSaving(false);
     if (result.status !== "updated") {
@@ -572,9 +668,17 @@ export function NutritionLogExperience({
 
   function renderEntryRow(entry: NutritionEntryRecord) {
     const nutritionLine = formatEntryNutritionLine(entry);
+    const title = entryDisplayTitle(entry);
+    const showIngredients =
+      entry.display_name &&
+      entry.display_name.trim().toLowerCase() !==
+        entry.description.trim().toLowerCase();
     return (
       <li key={entry.id} className="flex flex-col gap-1 py-3">
-        <p className="text-[15px] text-foreground">{entry.description}</p>
+        <p className="text-[15px] text-foreground">{title}</p>
+        {showIngredients ? (
+          <p className="text-[13px] leading-5 text-muted">{entry.description}</p>
+        ) : null}
         <p className="text-[12px] leading-5 text-muted">
           {entry.status === "planned" ? "Planned" : "Eaten"}
           {nutritionLine ? ` · ${nutritionLine}` : ""}
@@ -637,7 +741,9 @@ export function NutritionLogExperience({
             <p className="mb-4 text-[13px] text-muted">Logged. Nice one.</p>
           ) : null}
 
-          {summary ? <NutritionDaySummaryCard summary={summary} /> : null}
+          {summary ? (
+            <NutritionDaySummaryCard summary={summary} now={clock} />
+          ) : null}
         </>
       )}
 
@@ -654,9 +760,109 @@ export function NutritionLogExperience({
               onCancel={resetDescriptionFlow}
               onLog={(values) => void handleRecentFoodLog(values)}
             />
+          ) : entryMode === null && !draft.description ? (
+            <>
+              <CoachMessage>How do you want to add this?</CoachMessage>
+              <div className="flex flex-col gap-2 pl-10">
+                {(
+                  [
+                    {
+                      id: "search" as const,
+                      label: "Search foods",
+                      hint: "Find something you’ve logged before",
+                    },
+                    {
+                      id: "describe" as const,
+                      label: "Describe what you ate",
+                      hint: "AI estimates nutrition from your words",
+                    },
+                    {
+                      id: "barcode" as const,
+                      label: "Scan barcode",
+                      hint: "Look up a packaged product",
+                    },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      beginEdit();
+                      setEntryMode(option.id);
+                      setComposerKey((key) => key + 1);
+                    }}
+                    className="flex flex-col items-start rounded-2xl border border-border/80 px-4 py-3 text-left transition-colors hover:border-white/16 hover:bg-white/[0.03]"
+                  >
+                    <span className="text-[15px] text-foreground">
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 text-[12px] text-muted">
+                      {option.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : entryMode === "barcode" && !draft.description ? (
+            <>
+              <CoachMessage>Scan a barcode or enter it manually.</CoachMessage>
+              <div className="pl-10">
+                <BarcodeScanPanel
+                  disabled={saving}
+                  onCancel={() => {
+                    setEntryMode(null);
+                    setBarcodeMeta(null);
+                  }}
+                  onConfirm={(payload) => {
+                    beginEdit();
+                    setBarcodeMeta({
+                      barcode: payload.barcode,
+                      brand: payload.brand,
+                    });
+                    const estimateWithName = {
+                      ...payload.estimate,
+                      displayName: payload.displayName,
+                    };
+                    // Review via structured editor — never auto-save from a scan.
+                    setRecentFood({
+                      entry: {
+                        id: `barcode-${payload.barcode}`,
+                        logged_date: getLocalLoggedDate(),
+                        meal_type: draft.mealType,
+                        description: payload.description,
+                        display_name: payload.displayName,
+                        search_aliases: [],
+                        barcode: payload.barcode,
+                        brand: payload.brand,
+                        status: "eaten",
+                        calories_estimated: estimateWithName.calories,
+                        protein_g_estimated: estimateWithName.proteinG,
+                        carbs_g_estimated: estimateWithName.carbsG,
+                        fat_g_estimated: estimateWithName.fatG,
+                        estimation_confidence: estimateWithName.confidence,
+                        estimation_source: "open_food_facts",
+                        created_at: new Date().toISOString(),
+                      },
+                      estimate: estimateWithName,
+                    });
+                    setDraft(emptyDraft);
+                    setEstimate(null);
+                    setPendingEstimate(null);
+                    setClarificationQuestion(null);
+                    setFromSuggestion(false);
+                    setEntryMode(null);
+                    setEditing(null);
+                  }}
+                />
+              </div>
+            </>
           ) : (
             <>
-              <CoachMessage>What have you eaten?</CoachMessage>
+              <CoachMessage>
+                {entryMode === "search"
+                  ? "Search your recent foods, or type something new."
+                  : "What have you eaten?"}
+              </CoachMessage>
               {draft.description && step !== "description" ? (
                 <UserResponse
                   label={draft.description}
@@ -668,6 +874,7 @@ export function NutritionLogExperience({
                     setClarificationAnswer("");
                     setFromSuggestion(false);
                     setRecentFood(null);
+                    setBarcodeMeta(null);
                     setDraft((current) => ({
                       ...current,
                       description: null,
@@ -682,10 +889,16 @@ export function NutritionLogExperience({
                 <NutritionDescriptionInput
                   key={composerKey}
                   label="What you’ve eaten"
-                  placeholder="e.g. Eggs and toast"
+                  placeholder={
+                    entryMode === "search"
+                      ? "Search recent foods…"
+                      : "e.g. Eggs and toast"
+                  }
+                  enableSuggestions={entryMode !== "describe"}
                   onSubmit={(description) => {
                     beginEdit();
                     setRecentFood(null);
+                    setBarcodeMeta(null);
                     setDraft((current) => ({
                       ...current,
                       description,
@@ -989,8 +1202,15 @@ export function NutritionLogExperience({
                 {earlierEntries.slice(0, 6).map((entry) => (
                   <li key={entry.id} className="flex flex-col gap-1">
                     <p className="text-[14px] text-foreground">
-                      {entry.description}
+                      {entryDisplayTitle(entry)}
                     </p>
+                    {entry.display_name &&
+                    entry.display_name.trim().toLowerCase() !==
+                      entry.description.trim().toLowerCase() ? (
+                      <p className="text-[12px] leading-5 text-muted">
+                        {entry.description}
+                      </p>
+                    ) : null}
                     <p className="text-[12px] leading-5 text-muted">
                       {formatLoggedDateLabel(entry.logged_date)}
                       {entry.meal_type

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  entryDisplayTitle,
   labelForMealType,
   mealTypeOptions,
   nutritionStatusOptions,
@@ -121,8 +122,15 @@ export function NutritionRecentFoodEditor({
             Recent food
           </p>
           <h2 className="mt-2 font-serif text-[1.55rem] leading-tight tracking-tight">
-            {entry.description}
+            {entryDisplayTitle(entry)}
           </h2>
+          {entry.display_name &&
+          entry.display_name.trim().toLowerCase() !==
+            entry.description.trim().toLowerCase() ? (
+            <p className="mt-1 text-[13px] leading-5 text-muted">
+              {entry.description}
+            </p>
+          ) : null}
           <p className="mt-1 text-[14px] text-muted">{mealLabel}</p>
         </div>
         <button

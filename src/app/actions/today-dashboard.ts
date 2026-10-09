@@ -5,8 +5,11 @@ import { loadNutritionDay } from "@/app/actions/nutrition";
 import { getCurrentUser } from "@/lib/auth/session";
 import type { CompletedDailyCheckIn } from "@/lib/check-ins";
 import { isValidCheckInDate } from "@/lib/check-ins";
+import { listNutritionHabitPrefs } from "@/app/actions/nutrition";
+import type { HabitHistoryEntry } from "@/lib/food-habits";
 import type { MealTypeId, NutritionDaySummary } from "@/lib/nutrition";
 import { isValidLoggedDate } from "@/lib/nutrition";
+import { shiftCoachDate } from "@/lib/coach";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
@@ -15,6 +18,7 @@ import {
   type TrainingSessionRecord,
 } from "@/lib/training";
 import type { PlanId } from "@/lib/today";
+import { NUTRITION_ENTRY_SELECT, toNutritionEntryRecord } from "@/lib/nutrition-day";
 
 const SESSION_SELECT =
   "id, session_date, training_type, title, duration_minutes, notes, created_at";
@@ -29,6 +33,9 @@ export type TodayDashboardData = {
   loggedMealTypes: Array<MealTypeId | null>;
   trainingSession: TrainingSessionRecord | null;
   hasTrainingSession: boolean;
+  /** Recent nutrition history for habit detection (excludes today). */
+  habitHistory: HabitHistoryEntry[];
+  stoppedHabitKeys: string[];
 };
 
 export type LoadTodayDashboardResult =
@@ -97,18 +104,31 @@ export async function loadTodayDashboard(
 
   try {
     const supabase = await createClient();
-    const [checkInResult, nutritionResult, trainingResult] = await Promise.all([
-      loadTodaysCheckIn(localDate),
-      loadNutritionDay(localDate),
-      supabase
-        .from("training_sessions")
-        .select(SESSION_SELECT)
-        .eq("user_id", user.id)
-        .eq("session_date", localDate)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+    const habitFrom = shiftCoachDate(localDate, -14);
+
+    const [checkInResult, nutritionResult, trainingResult, habitPrefsResult, habitHistoryResult] =
+      await Promise.all([
+        loadTodaysCheckIn(localDate),
+        loadNutritionDay(localDate),
+        supabase
+          .from("training_sessions")
+          .select(SESSION_SELECT)
+          .eq("user_id", user.id)
+          .eq("session_date", localDate)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        listNutritionHabitPrefs(),
+        supabase
+          .from("nutrition_entries")
+          .select(NUTRITION_ENTRY_SELECT)
+          .eq("user_id", user.id)
+          .gte("logged_date", habitFrom)
+          .lt("logged_date", localDate)
+          .order("logged_date", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(120),
+      ]);
 
     if (checkInResult.status === "error") {
       return { status: "error", message: checkInResult.message };
@@ -129,10 +149,20 @@ export async function loadTodayDashboard(
       };
     }
 
+    if (habitHistoryResult.error) {
+      console.error(
+        "[today-dashboard] Habit history load failed:",
+        habitHistoryResult.error.message,
+      );
+      // Non-fatal — Coach Moments still work without habit history.
+    }
+
     const nutrition = nutritionResult.summary;
-    const loggedMealTypes = nutrition.eatenEntries.map(
-      (entry) => entry.meal_type,
-    );
+    // Planned + eaten both count as "logged" so Coach doesn't re-ask.
+    const loggedMealTypes = [
+      ...nutrition.eatenEntries,
+      ...nutrition.plannedEntries,
+    ].map((entry) => entry.meal_type);
 
     const trainingSession = trainingResult.data
       ? toSessionRecord(trainingResult.data as Record<string, unknown>)
@@ -140,6 +170,31 @@ export async function loadTodayDashboard(
 
     const checkIn =
       checkInResult.status === "found" ? checkInResult.checkIn : null;
+
+    const habitHistory: HabitHistoryEntry[] = [];
+    for (const row of habitHistoryResult.data ?? []) {
+      const entry = toNutritionEntryRecord(
+        row as unknown as Record<string, unknown>,
+      );
+      if (!entry) {
+        continue;
+      }
+      habitHistory.push({
+        logged_date: entry.logged_date,
+        description: entry.description,
+        display_name: entry.display_name,
+        search_aliases: entry.search_aliases,
+        meal_type: entry.meal_type,
+        calories_estimated: entry.calories_estimated,
+        protein_g_estimated: entry.protein_g_estimated,
+        carbs_g_estimated: entry.carbs_g_estimated,
+        fat_g_estimated: entry.fat_g_estimated,
+        created_at: entry.created_at,
+      });
+    }
+
+    const stoppedHabitKeys =
+      habitPrefsResult.status === "ok" ? habitPrefsResult.stoppedKeys : [];
 
     return {
       status: "ok",
@@ -154,6 +209,8 @@ export async function loadTodayDashboard(
         loggedMealTypes,
         trainingSession,
         hasTrainingSession: trainingSession !== null,
+        habitHistory,
+        stoppedHabitKeys,
       },
     };
   } catch (error) {

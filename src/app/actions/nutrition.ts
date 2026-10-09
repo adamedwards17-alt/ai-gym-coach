@@ -13,6 +13,18 @@ import {
 } from "@/lib/nutrition-day";
 import { shiftCoachDate } from "@/lib/coach";
 import {
+  buildSearchAliases,
+  deriveDisplayName,
+  entryMatchesQuery,
+  normalizeFoodText,
+} from "@/lib/food-naming";
+import {
+  fetchOpenFoodFactsProduct,
+  isPlausibleBarcode,
+  normalizeBarcode,
+  type LookupBarcodeResult,
+} from "@/lib/open-food-facts";
+import {
   isMealTypeId,
   isNutritionEntryStatus,
   isValidLoggedDate,
@@ -57,6 +69,14 @@ export type UpdateNutritionStatusResult =
 
 export type DeleteNutritionResult =
   | { status: "deleted" }
+  | { status: "error"; message: string };
+
+export type ListHabitPrefsResult =
+  | { status: "ok"; stoppedKeys: string[] }
+  | { status: "error"; message: string };
+
+export type StopHabitResult =
+  | { status: "stopped"; habitKey: string }
   | { status: "error"; message: string };
 
 export async function listRecentNutritionEntries(
@@ -259,20 +279,21 @@ export async function searchRecentNutritionEntries(input: {
   }
 
   const fromDate = shiftCoachDate(input.localDate, -7);
-  const pattern = `%${query.replace(/[%_]/g, "").slice(0, 60)}%`;
+  const normalizedQuery = normalizeFoodText(query);
 
   try {
     const supabase = await createClient();
+    // Fetch the last 7 days without a SQL filter, then match client-side so
+    // display names and aliases (not just the raw description) are searchable.
     const { data, error } = await supabase
       .from("nutrition_entries")
       .select(NUTRITION_ENTRY_SELECT)
       .eq("user_id", user.id)
       .gte("logged_date", fromDate)
       .lte("logged_date", input.localDate)
-      .ilike("description", pattern)
       .order("logged_date", { ascending: false })
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(200);
 
     if (error) {
       console.error("[nutrition] Search failed:", error.message);
@@ -282,34 +303,51 @@ export async function searchRecentNutritionEntries(input: {
       };
     }
 
+    type Ranked = { entry: NutritionEntryRecord; rank: number; order: number };
     const seen = new Map<string, number>();
-    const entries: NutritionEntryRecord[] = [];
+    const ranked: Ranked[] = [];
+    let order = 0;
+
     for (const row of data ?? []) {
       const entry = toNutritionEntryRecord(
         row as unknown as Record<string, unknown>,
       );
-      if (!entry) {
+      if (!entry || !entryMatchesQuery(entry, query)) {
         continue;
       }
-      const key = entry.description.trim().toLowerCase();
+
+      // Lower rank = better match. Display name / alias beats raw description.
+      const displayNorm = normalizeFoodText(entry.display_name ?? "");
+      const aliasMatch = entry.search_aliases.some((alias) =>
+        normalizeFoodText(alias).includes(normalizedQuery),
+      );
+      const rank = displayNorm.startsWith(normalizedQuery)
+        ? 0
+        : displayNorm.includes(normalizedQuery)
+          ? 1
+          : aliasMatch
+            ? 2
+            : 3;
+
+      const key = `${displayNorm}|${normalizeFoodText(entry.description)}`;
       const existingIndex = seen.get(key);
       if (existingIndex !== undefined) {
         // Prefer a duplicate that still has saved macros for structured re-logging.
-        const existing = entries[existingIndex];
+        const existing = ranked[existingIndex];
         if (
-          existing.calories_estimated == null &&
+          existing.entry.calories_estimated == null &&
           entry.calories_estimated != null
         ) {
-          entries[existingIndex] = entry;
+          ranked[existingIndex] = { entry, rank, order: existing.order };
         }
         continue;
       }
-      seen.set(key, entries.length);
-      entries.push(entry);
-      if (entries.length >= 6) {
-        break;
-      }
+      seen.set(key, ranked.length);
+      ranked.push({ entry, rank, order: order++ });
     }
+
+    ranked.sort((a, b) => a.rank - b.rank || a.order - b.order);
+    const entries = ranked.slice(0, 6).map((item) => item.entry);
 
     return { status: "ok", entries };
   } catch (error) {
@@ -326,6 +364,8 @@ export async function searchRecentNutritionEntries(input: {
 export async function updateNutritionEntry(input: {
   entryId: string;
   description: string;
+  /** When set, renames the diary title without requiring a description change. */
+  displayName?: string | null;
   calories: number;
   proteinG: number;
   carbsG: number;
@@ -363,10 +403,46 @@ export async function updateNutritionEntry(input: {
 
   try {
     const supabase = await createClient();
+
+    const { data: existing, error: existingError } = await supabase
+      .from("nutrition_entries")
+      .select("description, display_name, brand")
+      .eq("id", input.entryId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (existingError || !existing) {
+      console.error(
+        "[nutrition] Update lookup failed:",
+        existingError?.message ?? "No row",
+      );
+      return {
+        status: "error",
+        message: "That entry couldn’t be updated. Try again.",
+      };
+    }
+
+    // Prefer an explicit rename. Otherwise keep the existing display name when
+    // only macros/ingredients change, so nutrition edits don't wipe titles.
+    const brand =
+      typeof existing.brand === "string" && existing.brand.trim()
+        ? existing.brand.trim()
+        : null;
+    const explicitName = input.displayName?.trim();
+    const existingName =
+      typeof existing.display_name === "string" && existing.display_name.trim()
+        ? existing.display_name.trim()
+        : null;
+    const displayName = explicitName
+      ? deriveDisplayName(description, explicitName)
+      : existingName ?? deriveDisplayName(description);
+
     const { data, error } = await supabase
       .from("nutrition_entries")
       .update({
         description,
+        display_name: displayName,
+        search_aliases: buildSearchAliases({ displayName, description, brand }),
         calories_estimated: calories,
         protein_g_estimated: proteinG,
         carbs_g_estimated: carbsG,
@@ -418,6 +494,9 @@ export async function saveNutritionEntry(input: {
   mealType: MealTypeId | null;
   status: NutritionEntryStatus;
   estimate: NutritionEstimate | null;
+  /** Optional Open Food Facts product metadata. */
+  barcode?: string | null;
+  brand?: string | null;
 }): Promise<SaveNutritionResult> {
   if (!isValidLoggedDate(input.loggedDate)) {
     return { status: "error", message: "That date isn’t valid." };
@@ -451,6 +530,18 @@ export async function saveNutritionEntry(input: {
   try {
     const supabase = await createClient();
     const estimate = input.estimate;
+
+    const barcodeDigits = input.barcode ? normalizeBarcode(input.barcode) : "";
+    const barcode = isPlausibleBarcode(barcodeDigits) ? barcodeDigits : null;
+    const brand = input.brand?.trim().slice(0, 80) || null;
+    const displayName = deriveDisplayName(description, estimate?.displayName);
+    const searchAliases = buildSearchAliases({
+      displayName,
+      description,
+      brand,
+      extra: estimate?.searchAliases,
+    });
+
     const { data, error } = await supabase
       .from("nutrition_entries")
       .insert({
@@ -458,6 +549,10 @@ export async function saveNutritionEntry(input: {
         logged_date: input.loggedDate,
         meal_type: input.mealType,
         description,
+        display_name: displayName,
+        search_aliases: searchAliases,
+        barcode,
+        brand,
         status: input.status,
         calories_estimated: estimate?.calories ?? null,
         protein_g_estimated: estimate?.proteinG ?? null,
@@ -599,6 +694,114 @@ export async function deleteNutritionEntry(input: {
     return {
       status: "error",
       message: "That entry couldn’t be deleted. Try again.",
+    };
+  }
+}
+
+export async function lookupBarcodeProduct(input: {
+  barcode: string;
+}): Promise<LookupBarcodeResult> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  return fetchOpenFoodFactsProduct(input.barcode);
+}
+
+export async function listNutritionHabitPrefs(): Promise<ListHabitPrefsResult> {
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so habit preferences can’t be loaded.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("nutrition_habit_prefs")
+      .select("habit_key")
+      .eq("user_id", user.id)
+      .eq("status", "stopped");
+
+    if (error) {
+      console.error("[nutrition] Habit prefs list failed:", error.message);
+      return {
+        status: "error",
+        message: "Habit preferences couldn’t be loaded.",
+      };
+    }
+
+    const stoppedKeys = (data ?? [])
+      .map((row) => (row as { habit_key?: unknown }).habit_key)
+      .filter((key): key is string => typeof key === "string");
+
+    return { status: "ok", stoppedKeys };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown habit prefs error";
+    console.error("[nutrition] Habit prefs list failed:", message);
+    return {
+      status: "error",
+      message: "Habit preferences couldn’t be loaded.",
+    };
+  }
+}
+
+export async function stopNutritionHabit(input: {
+  habitKey: string;
+}): Promise<StopHabitResult> {
+  const habitKey = input.habitKey.trim();
+  if (!habitKey || habitKey.length > 120) {
+    return { status: "error", message: "That habit isn’t valid." };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so that preference couldn’t be saved.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.from("nutrition_habit_prefs").upsert(
+      {
+        user_id: user.id,
+        habit_key: habitKey,
+        status: "stopped",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,habit_key" },
+    );
+
+    if (error) {
+      console.error("[nutrition] Stop habit failed:", error.message);
+      return {
+        status: "error",
+        message: "That preference couldn’t be saved. Try again.",
+      };
+    }
+
+    return { status: "stopped", habitKey };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown stop habit error";
+    console.error("[nutrition] Stop habit failed:", message);
+    return {
+      status: "error",
+      message: "That preference couldn’t be saved. Try again.",
     };
   }
 }

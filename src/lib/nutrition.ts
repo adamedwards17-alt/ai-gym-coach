@@ -12,7 +12,11 @@ export type NutritionEntryStatus = "eaten" | "planned";
 
 export type NutritionEstimationConfidence = "high" | "medium" | "low";
 
-export type NutritionEstimationSource = "gemini" | "user" | "none";
+export type NutritionEstimationSource =
+  | "gemini"
+  | "user"
+  | "open_food_facts"
+  | "none";
 
 export type NutritionEntryDraft = {
   description: string | null;
@@ -28,6 +32,9 @@ export type NutritionEstimate = {
   fatG: number;
   confidence: NutritionEstimationConfidence;
   source: NutritionEstimationSource;
+  /** Concise diary title when the model (or heuristics) provide one. */
+  displayName?: string | null;
+  searchAliases?: string[];
   items: Array<{
     description: string;
     calories: number;
@@ -43,6 +50,10 @@ export type NutritionEntryRecord = {
   logged_date: string;
   meal_type: MealTypeId | null;
   description: string;
+  display_name: string | null;
+  search_aliases: string[];
+  barcode: string | null;
+  brand: string | null;
   status: NutritionEntryStatus;
   calories_estimated: number | null;
   protein_g_estimated: number | null;
@@ -152,7 +163,19 @@ export function isEstimationConfidence(
 export function isEstimationSource(
   value: unknown,
 ): value is NutritionEstimationSource {
-  return value === "gemini" || value === "user" || value === "none";
+  return (
+    value === "gemini" ||
+    value === "user" ||
+    value === "open_food_facts" ||
+    value === "none"
+  );
+}
+
+/** Diary title: concise display name when present, otherwise the description. */
+export function entryDisplayTitle(
+  entry: Pick<NutritionEntryRecord, "description" | "display_name">,
+): string {
+  return entry.display_name?.trim() || entry.description;
 }
 
 export function labelForMealType(id: MealTypeId | null): string {
@@ -342,6 +365,20 @@ export function parseFoodEstimationResponse(
     }
   }
 
+  const displayName =
+    typeof record.display_name === "string" && record.display_name.trim()
+      ? record.display_name.trim()
+      : null;
+
+  const searchAliases: string[] = [];
+  if (Array.isArray(record.search_aliases)) {
+    for (const alias of record.search_aliases) {
+      if (typeof alias === "string" && alias.trim()) {
+        searchAliases.push(alias.trim().toLowerCase());
+      }
+    }
+  }
+
   return {
     kind: "estimate",
     estimate: {
@@ -351,6 +388,8 @@ export function parseFoodEstimationResponse(
       fatG: Math.round(fatG),
       confidence,
       source: "gemini",
+      displayName,
+      searchAliases,
       items,
     },
   };
@@ -377,14 +416,20 @@ export function estimateFromEntry(
     carbsG: Math.round(Number(entry.carbs_g_estimated ?? 0)),
     fatG: Math.round(Number(entry.fat_g_estimated ?? 0)),
     confidence: entry.estimation_confidence ?? "medium",
-    source: entry.estimation_source === "user" ? "user" : "gemini",
+    source:
+      entry.estimation_source === "user" ||
+      entry.estimation_source === "open_food_facts"
+        ? entry.estimation_source
+        : "gemini",
+    displayName: entry.display_name,
+    searchAliases: entry.search_aliases ?? [],
     items: [],
   };
 }
 
 export function formatEstimateSummary(estimate: NutritionEstimate): string {
   const macros = `${estimate.proteinG}g protein · ${estimate.carbsG}g carbs · ${estimate.fatG}g fat`;
-  if (estimate.source === "user") {
+  if (estimate.source === "user" || estimate.source === "open_food_facts") {
     return `${estimate.calories} kcal · ${macros}`;
   }
   if (estimate.confidence === "low") {
@@ -405,8 +450,10 @@ export function formatEntryNutritionLine(
   const sourceLabel =
     entry.estimation_source === "user"
       ? "edited"
-      : entry.estimation_confidence === "low"
-        ? "rough estimate"
-        : "estimated";
+      : entry.estimation_source === "open_food_facts"
+        ? "product"
+        : entry.estimation_confidence === "low"
+          ? "rough estimate"
+          : "estimated";
   return `~${entry.calories_estimated} kcal · ${protein}g P · ${carbs}g C · ${fat}g F · ${sourceLabel}`;
 }

@@ -21,6 +21,8 @@ Do NOT ask for clarification when:
 Otherwise return:
 {
   "needs_clarification": false,
+  "display_name": "concise dish title",
+  "search_aliases": ["short", "searchable", "terms"],
   "items": [
     {
       "description": "short item label",
@@ -43,6 +45,8 @@ Otherwise return:
 Rules:
 - Estimate calories and macros from the description. Do not invent barcode-level precision.
 - Split into sensible items when the user lists multiple foods.
+- display_name: a concise, natural dish or product title (2–4 words, max 40 characters, sentence case). Name the dish, not the ingredient list. Examples: "Spinach and mushroom omelette", "Chicken rice bowl", "Protein shake", "Cappuccino". Never include quantities or commas.
+- search_aliases: 3–8 lowercase search terms the user might later type to find this meal again (dish name, main ingredients, common synonyms). No quantities, no sentences.
 - totals must equal the sum of items (within rounding).
 - confidence: "high" for clear quantities of common foods; "medium" for reasonable assumptions; "low" for vague/restaurant/unknown portions or when clarification was skipped.
 - Use whole numbers for calories and grams.

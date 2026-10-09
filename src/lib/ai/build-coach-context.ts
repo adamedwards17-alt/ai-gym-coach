@@ -165,7 +165,7 @@ export async function buildCoachContext(input: {
     supabase
       .from("nutrition_entries")
       .select(
-        "id, logged_date, meal_type, description, status, calories_estimated, protein_g_estimated, carbs_g_estimated, fat_g_estimated, estimation_confidence, estimation_source, created_at",
+        "id, logged_date, meal_type, description, display_name, search_aliases, status, calories_estimated, protein_g_estimated, carbs_g_estimated, fat_g_estimated, estimation_confidence, estimation_source, created_at",
       )
       .eq("user_id", input.userId)
       .gte("logged_date", nutritionFrom)
