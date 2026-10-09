@@ -17,12 +17,17 @@ import {
 } from "@/app/actions/today-dashboard";
 import { NutritionProgressBars } from "@/components/nutrition/NutritionProgressBars";
 import { MorningCheckIn } from "@/components/today/MorningCheckIn";
+import { TodayActionBanners } from "@/components/today/TodayActionBanners";
 import {
   formatSleepHoursLabel,
   getLocalCheckInDate,
   hydrateCheckInForUi,
   toTodayCheckInState,
 } from "@/lib/check-ins";
+import {
+  markBannerDismissed,
+  readDismissedBannerIds,
+} from "@/lib/banner-session";
 import { getLocalCoachDate } from "@/lib/coach";
 import { resolveCoachMoment, type CoachMoment } from "@/lib/coach-moment";
 import { detectFoodHabits, type DetectedHabit } from "@/lib/food-habits";
@@ -40,8 +45,10 @@ import {
   type TodayCheckIn,
 } from "@/lib/today";
 import {
-  buildTodayCoachingSummary,
-} from "@/lib/today-coaching-summary";
+  resolveTodayActionBanners,
+  type TodayActionBanner,
+} from "@/lib/today-action-banners";
+import { buildTodayCoachingSummary } from "@/lib/today-coaching-summary";
 import { statusLabel as planStatusLabel } from "@/lib/training-plan";
 import {
   labelForDuration,
@@ -256,6 +263,8 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
   const [dismissedHabitKeys, setDismissedHabitKeys] = useState<string[]>([]);
   const [promptedHabitKeys, setPromptedHabitKeys] = useState<string[]>([]);
   const [habitAck, setHabitAck] = useState<string | null>(null);
+  const [dismissedBannerIds, setDismissedBannerIds] = useState<string[]>([]);
+  const [bannerStorageTick, setBannerStorageTick] = useState(0);
   const name = getDisplayName(displayName);
   const hour = now.getHours();
   const greeting = greetingForHour(hour, name);
@@ -307,8 +316,9 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     }
     queueMicrotask(() => {
       setPromptedHabitKeys(readPromptedHabitKeys(data.localDate));
+      setDismissedBannerIds(readDismissedBannerIds(data.localDate));
     });
-  }, [data?.localDate, habitStorageTick]);
+  }, [data?.localDate, habitStorageTick, bannerStorageTick]);
 
   const nextAction: NextAction | null = useMemo(() => {
     if (!data) {
@@ -324,14 +334,6 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     });
   }, [data, now]);
 
-  /** Large meal banners are demoted — Coach's Take + compact inspiration instead. */
-  const heroNextAction =
-    nextAction &&
-    (nextAction.type === "morning_check_in" ||
-      nextAction.type === "training")
-      ? nextAction
-      : null;
-
   const mealInspirationAction =
     nextAction &&
     (nextAction.type === "breakfast" ||
@@ -340,17 +342,6 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
       nextAction.type === "dinner")
       ? nextAction
       : null;
-
-  const coachingSummary = useMemo(() => {
-    if (!data) {
-      return null;
-    }
-    return buildTodayCoachingSummary({
-      planEntries: data.todayPlanEntries,
-      nutrition: data.nutrition,
-      feeling: data.checkIn?.feeling ?? null,
-    });
-  }, [data]);
 
   const detectedHabits: DetectedHabit[] = useMemo(() => {
     if (!data) {
@@ -396,13 +387,56 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     });
   }, [data, now, detectedHabits]);
 
+  const actionBanners: TodayActionBanner[] = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+    return resolveTodayActionBanners({
+      now,
+      hasCheckIn: data.hasCheckIn,
+      plannedTraining: data.plannedTraining,
+      loggedMealTypes: data.loggedMealTypes,
+      hasTrainingSession:
+        data.hasTrainingSession && !data.hasIncompletePlannedTraining,
+      nutrition: data.nutrition,
+      detectedHabits,
+      planEntries: data.todayPlanEntries,
+      dismissedIds: dismissedBannerIds,
+      maxBanners: 2,
+    });
+  }, [data, now, detectedHabits, dismissedBannerIds]);
+
+  const coachingSummary = useMemo(() => {
+    if (!data) {
+      return null;
+    }
+    const hasTrainingBanner = actionBanners.some(
+      (banner) => banner.kind === "training",
+    );
+    return buildTodayCoachingSummary({
+      planEntries: data.todayPlanEntries,
+      nutrition: data.nutrition,
+      feeling: data.checkIn?.feeling ?? null,
+      suppressTrainingReminder: hasTrainingBanner,
+    });
+  }, [data, actionBanners]);
+
   // Keep the habit sticky until answered; mark prompted so refresh won't re-ask.
+  // Skip sticky habit UI when the habit is already surfaced as an action banner.
   useEffect(() => {
     if (
       !coachMoment ||
       coachMoment.type !== "habit" ||
       !coachMoment.habitKey ||
       activeHabitMoment
+    ) {
+      return;
+    }
+    if (
+      actionBanners.some(
+        (banner) =>
+          banner.kind === "habit" && banner.habitKey === coachMoment.habitKey,
+      )
     ) {
       return;
     }
@@ -413,13 +447,39 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
       setActiveHabitMoment(habit);
       setHabitStorageTick((tick) => tick + 1);
     });
-  }, [coachMoment, data?.localDate, activeHabitMoment]);
+  }, [coachMoment, data?.localDate, activeHabitMoment, actionBanners]);
 
   const displayCoachMoment: CoachMoment | null =
     activeHabitMoment &&
     !dismissedHabitKeys.includes(activeHabitMoment.habitKey ?? "")
       ? activeHabitMoment
-      : coachMoment;
+      : coachMoment &&
+          !actionBanners.some(
+            (banner) =>
+              banner.kind === "habit" &&
+              banner.habitKey === coachMoment.habitKey,
+          )
+        ? coachMoment
+        : null;
+
+  function dismissBanner(bannerId: string) {
+    const localDate = data?.localDate ?? getLocalCheckInDate();
+    markBannerDismissed(localDate, bannerId);
+    setDismissedBannerIds((ids) =>
+      ids.includes(bannerId) ? ids : [...ids, bannerId],
+    );
+    setBannerStorageTick((tick) => tick + 1);
+    // Habit dismissals also suppress the sticky habit prompt for today.
+    if (bannerId.startsWith("habit:")) {
+      const habitKey = bannerId.slice("habit:".length);
+      markHabitPrompted(localDate, habitKey);
+      setDismissedHabitKeys((keys) =>
+        keys.includes(habitKey) ? keys : [...keys, habitKey],
+      );
+      setActiveHabitMoment(null);
+      setHabitStorageTick((tick) => tick + 1);
+    }
+  }
 
   function dismissHabitForToday(habitKey: string, message?: string) {
     const localDate = data?.localDate ?? getLocalCheckInDate();
@@ -432,7 +492,12 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     setHabitAck(message ?? null);
   }
 
-  function handleHabitYes(moment: CoachMoment) {
+  function logHabitFromMoment(moment: {
+    habitKey?: string;
+    habitDescription?: string;
+    habitLabel?: string;
+    mealType?: CoachMoment["mealType"];
+  }) {
     if (!moment.habitKey || !moment.habitDescription) {
       return;
     }
@@ -444,6 +509,7 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     );
     setActiveHabitMoment(null);
     setHabitStorageTick((tick) => tick + 1);
+    dismissBanner(`habit:${moment.habitKey}`);
 
     // Only hand off saved macros when we actually have them — never invent zeros.
     writePendingFoodLog({
@@ -468,6 +534,29 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     });
     const meal = moment.mealType ? `?meal=${moment.mealType}` : "";
     router.push(`/nutrition${meal}`);
+  }
+
+  function handleHabitYes(moment: CoachMoment) {
+    logHabitFromMoment(moment);
+  }
+
+  function handleHabitBannerLog(banner: TodayActionBanner) {
+    if (!banner.habitKey) {
+      return;
+    }
+    const moment =
+      (coachMoment?.habitKey === banner.habitKey ? coachMoment : null) ??
+      (activeHabitMoment?.habitKey === banner.habitKey
+        ? activeHabitMoment
+        : null);
+    const habit = detectedHabits.find((item) => item.key === banner.habitKey);
+    logHabitFromMoment({
+      habitKey: banner.habitKey,
+      habitDescription:
+        moment?.habitDescription ?? habit?.description ?? banner.title,
+      habitLabel: moment?.habitLabel ?? habit?.label,
+      mealType: moment?.mealType ?? habit?.mealType ?? null,
+    });
   }
 
   function handleHabitNo(moment: CoachMoment) {
@@ -591,6 +680,13 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
         </p>
       ) : null}
 
+      <TodayActionBanners
+        banners={actionBanners}
+        onDismiss={dismissBanner}
+        onOpenCheckIn={() => setPanel("check-in")}
+        onHabitLog={handleHabitBannerLog}
+      />
+
       {data && coachingSummary ? (
         <section className="today-reveal mb-8">
           <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
@@ -606,33 +702,6 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
               </p>
             ))}
           </div>
-        </section>
-      ) : null}
-
-      {heroNextAction ? (
-        <section className="today-reveal mb-8 rounded-2xl border border-border/70 px-4 py-4">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
-            Next step
-          </p>
-          <p className="mt-2 text-[15px] leading-6 text-foreground">
-            {heroNextAction.title}
-          </p>
-          {heroNextAction.type === "morning_check_in" ? (
-            <button
-              type="button"
-              onClick={() => setPanel("check-in")}
-              className="mt-3 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-            >
-              {heroNextAction.action.label}
-            </button>
-          ) : (
-            <Link
-              href={heroNextAction.action.href}
-              className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-            >
-              {heroNextAction.action.label}
-            </Link>
-          )}
         </section>
       ) : null}
 

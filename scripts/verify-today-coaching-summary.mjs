@@ -102,6 +102,13 @@ function trainingOpening(entries) {
       } — ${remaining} still to go.`,
     };
   }
+  if (planned.length > 0 && skipped.length > 0 && completed.length === 0) {
+    const entry = planned[0];
+    return {
+      kind: "mixed_skip_planned",
+      sentence: `You’ve still got ${labelForTrainingType(entry.training_type)} planned — mark it complete when you’re done.`,
+    };
+  }
   if (planned.length === 1) {
     return {
       kind: "planned",
@@ -121,7 +128,17 @@ function buildTodayCoachingSummary(input) {
   const sentences = [];
   const training = trainingOpening(input.planEntries);
   const nutrition = readNutritionFacts(input.nutrition);
-  if (training.sentence) sentences.push(training.sentence);
+  const suppressReminder =
+    input.suppressTrainingReminder === true &&
+    (training.kind === "planned" ||
+      training.kind === "partial_done" ||
+      training.kind === "mixed_skip_planned");
+
+  if (training.sentence && !suppressReminder) {
+    sentences.push(training.sentence);
+  } else if (suppressReminder && training.kind === "partial_done") {
+    sentences.push("Nice progress on today’s training.");
+  }
 
   if (nutrition.hasTargets) {
     const calorieRemain = nutrition.calorieRemain ?? 0;
@@ -152,10 +169,16 @@ function buildTodayCoachingSummary(input) {
           `You’re still about ${formatAround(proteinGap)}g short of your protein target.`,
         );
       }
-    } else if (training.kind === "planned" || training.kind === "partial_done") {
+    } else if (
+      training.kind === "planned" ||
+      training.kind === "partial_done" ||
+      training.kind === "mixed_skip_planned"
+    ) {
       if (proteinGap >= 25 && calorieRemain > 150) {
         sentences.push(
-          `Alongside that, you’ve got around ${formatAround(calorieRemain)} calories left and about ${formatAround(proteinGap)}g of protein still to go.`,
+          suppressReminder
+            ? `Protein is behind target — you’ve got around ${formatAround(calorieRemain)} calories left and about ${formatAround(proteinGap)}g of protein still to go.`
+            : `Alongside that, you’ve got around ${formatAround(calorieRemain)} calories left and about ${formatAround(proteinGap)}g of protein still to go.`,
         );
       } else if (proteinGap >= 25) {
         sentences.push(
@@ -195,9 +218,19 @@ function buildTodayCoachingSummary(input) {
   }
 
   if (sentences.length === 0) {
-    sentences.push(
-      "Log food and training as you go — I’ll keep this summary up to date.",
-    );
+    if (input.feeling === "sore") {
+      sentences.push(
+        "Respect how your body feels today and keep movement sensible.",
+      );
+    } else if (input.feeling === "tired") {
+      sentences.push(
+        "Energy looks limited — keep today realistic and focus on food and recovery.",
+      );
+    } else {
+      sentences.push(
+        "Log food and training as you go — I’ll keep this summary up to date.",
+      );
+    }
   }
   const trimmed = sentences.slice(0, 3);
   return { sentences: trimmed, text: trimmed.join(" ") };
@@ -339,6 +372,36 @@ const statusFlip = buildTodayCoachingSummary({
   nutrition: nutritionSummary({ caloriesLeft: 1900, proteinLeft: 81, consumedProtein: 89 }),
 });
 assert("status change from planned to done differs", statusFlip.text !== doneCalories.text);
+
+const suppressed = buildTodayCoachingSummary({
+  planEntries: [
+    { id: "1", title: "Upper", training_type: "strength", status: "planned", planned_duration_minutes: 45 },
+  ],
+  nutrition: nutritionSummary({ caloriesLeft: 1900, proteinLeft: 81, consumedProtein: 89 }),
+  suppressTrainingReminder: true,
+});
+assert(
+  "suppress training reminder drops complete CTA",
+  !suppressed.text.includes("mark your workout as complete"),
+);
+assert(
+  "suppress still surfaces nutrition",
+  suppressed.text.includes("Protein is behind target") ||
+    suppressed.text.includes("protein"),
+);
+
+const skippedNoNag = buildTodayCoachingSummary({
+  planEntries: [
+    { id: "1", title: "Upper", training_type: "strength", status: "skipped", planned_duration_minutes: 45 },
+    { id: "2", title: "HIIT", training_type: "hiit", status: "planned", planned_duration_minutes: 30 },
+  ],
+  nutrition: null,
+});
+assert("mixed skip+planned mentions remaining", skippedNoNag.text.includes("HIIT"));
+assert(
+  "skipped session does not claim all done",
+  !skippedNoNag.text.includes("Great work getting your workouts done"),
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

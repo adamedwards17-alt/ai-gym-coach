@@ -298,10 +298,13 @@ function pickHabit(
 }
 
 /**
- * Resolve the single most relevant Coach Moment for Today.
+ * Collect ranked Coach Moment candidates for Today.
+ * Shared by the single-moment resolver and action banners.
  * Never proposes a meal the user has already logged.
  */
-export function resolveCoachMoment(input: CoachMomentInput): CoachMoment {
+export function collectCoachMomentCandidates(
+  input: CoachMomentInput,
+): CoachMoment[] {
   const hour = input.now.getHours();
   const minutes = minutesOf(input.now);
   const phase = resolveDayPhase(input.now);
@@ -379,14 +382,16 @@ export function resolveCoachMoment(input: CoachMomentInput): CoachMoment {
   const trainingPlanned =
     input.plannedTraining === "strength" ||
     input.plannedTraining === "hiit" ||
-    input.plannedTraining === "recovery";
+    input.plannedTraining === "recovery" ||
+    input.plannedTraining === "unsure";
 
+  // Prefer plan-entry-driven training banners when incomplete planned work remains.
+  // Legacy flag: hasTrainingSession means "day's training is done" for reminders.
   if (
-    input.hasCheckIn &&
     trainingPlanned &&
     !input.hasTrainingSession &&
-    hour >= 10 &&
-    hour < 20
+    hour >= 8 &&
+    hour < 21
   ) {
     candidates.push({
       type: "training",
@@ -398,7 +403,7 @@ export function resolveCoachMoment(input: CoachMomentInput): CoachMoment {
           : "Log today’s session if you trained.",
       description: "Open Train when you’re ready — no pressure to invent a workout.",
       showInspirationCta: false,
-      priority: hour >= 14 && hour < 18 ? 58 : 48,
+      priority: hour >= 14 && hour < 18 ? 72 : 58,
     });
   }
 
@@ -415,10 +420,19 @@ export function resolveCoachMoment(input: CoachMomentInput): CoachMoment {
     });
   }
 
+  candidates.sort((a, b) => b.priority - a.priority);
+  return candidates;
+}
+
+/**
+ * Resolve the single most relevant Coach Moment for Today.
+ */
+export function resolveCoachMoment(input: CoachMomentInput): CoachMoment {
+  const candidates = collectCoachMomentCandidates(input);
   if (candidates.length === 0) {
     return {
       type: "all_set",
-      phase,
+      phase: resolveDayPhase(input.now),
       kind: "observation",
       title: "You’re in a good place for today.",
       description: "Ask Coach anytime if you want a tweak.",
@@ -426,7 +440,5 @@ export function resolveCoachMoment(input: CoachMomentInput): CoachMoment {
       priority: 0,
     };
   }
-
-  candidates.sort((a, b) => b.priority - a.priority);
   return candidates[0];
 }

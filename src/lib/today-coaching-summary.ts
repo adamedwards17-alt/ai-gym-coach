@@ -24,6 +24,11 @@ export type TodayCoachingSummaryInput = {
   planEntries: TodayPlanWorkout[];
   nutrition: NutritionDaySummary | null;
   feeling?: string | null;
+  /**
+   * When a training action banner already prompts completion, keep Coach's Take
+   * focused on nutrition context instead of repeating the same reminder.
+   */
+  suppressTrainingReminder?: boolean;
 };
 
 export type TodayCoachingSummary = {
@@ -185,8 +190,17 @@ export function buildTodayCoachingSummary(
   const training = trainingOpening(input.planEntries);
   const nutrition = readNutritionFacts(input.nutrition);
 
-  if (training.sentence) {
+  const suppressReminder =
+    input.suppressTrainingReminder === true &&
+    (training.kind === "planned" ||
+      training.kind === "partial_done" ||
+      training.kind === "mixed_skip_planned");
+
+  if (training.sentence && !suppressReminder) {
     sentences.push(training.sentence);
+  } else if (suppressReminder && training.kind === "partial_done") {
+    // Still acknowledge partial progress without repeating the CTA.
+    sentences.push("Nice progress on today’s training.");
   }
 
   if (nutrition.hasTargets) {
@@ -219,10 +233,16 @@ export function buildTodayCoachingSummary(
           `You’re still about ${formatAround(proteinGap)}g short of your protein target.`,
         );
       }
-    } else if (training.kind === "planned" || training.kind === "partial_done") {
+    } else if (
+      training.kind === "planned" ||
+      training.kind === "partial_done" ||
+      training.kind === "mixed_skip_planned"
+    ) {
       if (proteinGap >= 25 && calorieRemain > 150) {
         sentences.push(
-          `Alongside that, you’ve got around ${formatAround(calorieRemain)} calories left and about ${formatAround(proteinGap)}g of protein still to go.`,
+          suppressReminder
+            ? `Protein is behind target — you’ve got around ${formatAround(calorieRemain)} calories left and about ${formatAround(proteinGap)}g of protein still to go.`
+            : `Alongside that, you’ve got around ${formatAround(calorieRemain)} calories left and about ${formatAround(proteinGap)}g of protein still to go.`,
         );
       } else if (proteinGap >= 25) {
         sentences.push(
