@@ -16,13 +16,14 @@ import {
   isTrainingIntensityId,
   isTrainingTypeId,
   isValidSessionDate,
+  parseStrengthDetails,
   type TrainingSessionRecord,
 } from "@/lib/training";
 import type { PlanId } from "@/lib/today";
 import { NUTRITION_ENTRY_SELECT, toNutritionEntryRecord } from "@/lib/nutrition-day";
 
 const SESSION_SELECT =
-  "id, session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, created_at";
+  "id, session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, strength_details, created_at";
 
 export type TodayDashboardData = {
   localDate: string;
@@ -82,6 +83,7 @@ function toSessionRecord(
       calories != null && Number.isFinite(calories) && calories >= 0
         ? Math.round(calories)
         : null,
+    strength_details: parseStrengthDetails(row.strength_details),
     created_at: row.created_at,
   };
 }

@@ -77,13 +77,32 @@ export type CoachChatTrainingContext = {
 };
 
 export type CoachChatPlanContext = {
+  id: string;
   date: string;
+  originalDate: string | null;
   trainingType: string;
   title: string;
   focus: string | null;
   plannedDurationMinutes: number | null;
-  status: "planned" | "completed";
+  status: "planned" | "completed" | "skipped" | "rescheduled";
   completed: boolean;
+  skipReason: string | null;
+  linkedSessionId: string | null;
+};
+
+export type CoachChatAvailabilityContext = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  constraintType: string;
+  notes: string | null;
+};
+
+export type CoachChatProposalContext = {
+  id: string;
+  status: string;
+  reason: string | null;
+  changeCount: number;
 };
 
 export type CoachChatStepsContext = {
@@ -138,7 +157,7 @@ export type CoachChatContext = {
   today: {
     checkIn: CoachChatCheckInContext | null;
     training: CoachChatTrainingContext[];
-    plannedTraining: CoachChatPlanContext | null;
+    plannedTraining: CoachChatPlanContext[];
     steps: CoachChatStepsContext | null;
     nutrition: CoachChatNutritionContext[];
     nutritionDay: CoachNutritionDayContext;
@@ -150,6 +169,10 @@ export type CoachChatContext = {
     steps: CoachChatStepsContext[];
     nutrition: CoachChatNutritionContext[];
   };
+  /** Full Monday–Sunday plan for the current local week (includes ids). */
+  weekPlan: CoachChatPlanContext[];
+  availabilityConstraints: CoachChatAvailabilityContext[];
+  pendingProposals: CoachChatProposalContext[];
   coachEvents: CoachChatEventContext[];
   conversation: {
     id: string;

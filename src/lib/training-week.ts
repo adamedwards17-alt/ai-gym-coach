@@ -19,7 +19,10 @@ export type WeeklyTrainingProgress = {
   weekStart: string;
   weekEnd: string;
   plannedSessions: number;
+  completedPlannedSessions: number;
+  skippedSessions: number;
   completedSessions: number;
+  unplannedSessions: number;
   restDays: number;
   unplannedDays: number;
   target: number;
@@ -89,9 +92,9 @@ export function isTrainingSessionType(type: PlanTrainingTypeId): boolean {
 
 /**
  * Weekly progress: rest days never count as planned or missed sessions.
- * Completed count prefers plan completions; unplanned logged sessions on
- * days without a plan entry also count toward completed (once per day max
- * for plan association — session count uses unique session ids).
+ * Rescheduled markers on the original day do not count as planned sessions
+ * for the current week slot (the moved entry on the new date does).
+ * Unplanned logged sessions never complete an unrelated planned workout.
  */
 export function buildWeeklyTrainingProgress(input: {
   localDate: string;
@@ -109,47 +112,46 @@ export function buildWeeklyTrainingProgress(input: {
     inWeek(session.session_date),
   );
 
-  const plannedSessionEntries = weekPlans.filter((entry) =>
+  // Active plan slots for this week (exclude rescheduled placeholders left behind).
+  const activePlans = weekPlans.filter(
+    (entry) => entry.status !== "rescheduled",
+  );
+
+  const plannedSessionEntries = activePlans.filter((entry) =>
     isTrainingSessionType(entry.training_type),
   );
-  const restDays = weekPlans.filter(
+  const restDays = activePlans.filter(
     (entry) => entry.training_type === "rest",
   ).length;
 
   const plannedSessions = plannedSessionEntries.length;
-  const completedFromPlan = plannedSessionEntries.filter(
+  const completedPlannedSessions = plannedSessionEntries.filter(
     (entry) => entry.status === "completed",
   ).length;
+  const skippedSessions = plannedSessionEntries.filter(
+    (entry) => entry.status === "skipped",
+  ).length;
 
-  // Unplanned workouts: sessions on dates without a non-rest plan entry.
-  const plannedDates = new Set(
-    plannedSessionEntries.map((entry) => entry.plan_date),
-  );
   const linkedSessionIds = new Set(
     plannedSessionEntries
       .map((entry) => entry.training_session_id)
       .filter((id): id is string => typeof id === "string"),
   );
 
-  let unplannedCompleted = 0;
-  const seenUnplannedDates = new Set<string>();
+  let unplannedSessions = 0;
+  const seenUnplannedIds = new Set<string>();
   for (const session of weekSessions) {
     if (linkedSessionIds.has(session.id)) {
       continue;
     }
-    if (plannedDates.has(session.session_date)) {
-      // Session on a planned day but not linked — still counts once via plan
-      // completion when marked complete; avoid double-count here.
+    if (seenUnplannedIds.has(session.id)) {
       continue;
     }
-    if (seenUnplannedDates.has(session.session_date)) {
-      continue;
-    }
-    seenUnplannedDates.add(session.session_date);
-    unplannedCompleted += 1;
+    seenUnplannedIds.add(session.id);
+    unplannedSessions += 1;
   }
 
-  const completedSessions = completedFromPlan + unplannedCompleted;
+  const completedSessions = completedPlannedSessions + unplannedSessions;
 
   const plannedDurationMinutes = plannedSessionEntries.reduce(
     (sum, entry) => sum + (entry.planned_duration_minutes ?? 0),
@@ -163,39 +165,60 @@ export function buildWeeklyTrainingProgress(input: {
   const target = Math.max(1, Math.round(input.target));
   const fillPercent = Math.min(
     100,
-    Math.round((completedSessions / target) * 100),
+    Math.round((completedPlannedSessions / target) * 100),
   );
 
-  const occupiedDates = new Set(weekPlans.map((entry) => entry.plan_date));
+  const occupiedDates = new Set(activePlans.map((entry) => entry.plan_date));
   const unplannedDays = 7 - occupiedDates.size;
 
   return {
     weekStart,
     weekEnd,
     plannedSessions,
+    completedPlannedSessions,
+    skippedSessions,
     completedSessions,
+    unplannedSessions,
     restDays,
     unplannedDays,
     target,
     fillPercent,
     plannedDurationMinutes,
     completedDurationMinutes,
-    achieved: completedSessions >= target,
+    achieved: completedPlannedSessions >= target,
   };
 }
 
 export function todayPlanStatus(input: {
   plan: TrainingPlanEntryRecord | null;
   hasSessionToday: boolean;
-}): "planned" | "completed" | "rest" | "unplanned" {
+}): "planned" | "completed" | "rest" | "skipped" | "unplanned" {
   if (input.plan?.training_type === "rest") {
     return "rest";
   }
-  if (input.plan?.status === "completed" || input.hasSessionToday) {
+  if (input.plan?.status === "completed") {
     return "completed";
   }
-  if (input.plan) {
+  if (input.plan?.status === "skipped") {
+    return "skipped";
+  }
+  if (input.plan?.status === "planned") {
     return "planned";
   }
+  if (input.hasSessionToday) {
+    return "completed";
+  }
   return "unplanned";
+}
+
+export function entriesForDate(
+  entries: TrainingPlanEntryRecord[],
+  date: string,
+): TrainingPlanEntryRecord[] {
+  return entries
+    .filter(
+      (entry) =>
+        entry.plan_date === date && entry.status !== "rescheduled",
+    )
+    .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
 }

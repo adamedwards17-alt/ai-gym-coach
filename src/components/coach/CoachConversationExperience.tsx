@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   createCoachConversation,
   loadCoachConversation,
   retryCoachReply,
   sendCoachMessage,
 } from "@/app/actions/coach";
+import { listPendingTrainingProposals } from "@/app/actions/training";
+import { PlanProposalCard } from "@/components/train/PlanProposalCard";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import {
   getLocalCoachDate,
@@ -20,6 +22,7 @@ import {
   isMealInspirationConversation,
   MEAL_INSPIRATION_QUICK_REPLIES,
 } from "@/lib/meal-inspiration";
+import type { TrainingPlanProposalRecord } from "@/lib/training-plan";
 
 type CoachConversationExperienceProps = {
   conversationId: string;
@@ -33,11 +36,20 @@ export function CoachConversationExperience({
   const [conversation, setConversation] =
     useState<CoachConversationRecord | null>(null);
   const [messages, setMessages] = useState<CoachMessageRecord[]>([]);
+  const [proposals, setProposals] = useState<TrainingPlanProposalRecord[]>([]);
   const [draft, setDraft] = useState("");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [creating, startCreate] = useTransition();
+
+  const refreshProposals = useCallback(() => {
+    void listPendingTrainingProposals({ conversationId }).then((result) => {
+      if (result.status === "ok") {
+        setProposals(result.proposals);
+      }
+    });
+  }, [conversationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +68,15 @@ export function CoachConversationExperience({
         setError(result.message);
       }
       setReady(true);
+    });
+
+    void listPendingTrainingProposals({ conversationId }).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      if (result.status === "ok") {
+        setProposals(result.proposals);
+      }
     });
 
     return () => {
@@ -95,6 +116,7 @@ export function CoachConversationExperience({
       if (result.status === "ok") {
         setConversation(result.conversation);
         setMessages(result.messages);
+        refreshProposals();
         setError(null);
         return;
       }
@@ -124,6 +146,7 @@ export function CoachConversationExperience({
       if (result.status === "ok") {
         setConversation(result.conversation);
         setMessages(result.messages);
+        refreshProposals();
         setError(null);
         return;
       }
@@ -229,6 +252,18 @@ export function CoachConversationExperience({
           <CoachMessage footnote="Thinking…">
             Looking at your day…
           </CoachMessage>
+        ) : null}
+
+        {proposals.length > 0 ? (
+          <div className="space-y-3 pl-0 sm:pl-2">
+            {proposals.map((proposal) => (
+              <PlanProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                onResolved={refreshProposals}
+              />
+            ))}
+          </div>
         ) : null}
 
         {error ? (

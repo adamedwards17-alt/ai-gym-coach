@@ -1,9 +1,11 @@
 import type {
+  CoachChatAvailabilityContext,
   CoachChatCheckInContext,
   CoachChatContext,
   CoachChatEventContext,
   CoachChatNutritionContext,
   CoachChatPlanContext,
+  CoachChatProposalContext,
   CoachChatStepsContext,
   CoachChatTrainingContext,
   CoachNutritionDayContext,
@@ -23,6 +25,11 @@ import {
 } from "@/lib/nutrition-day";
 import { isEstimationConfidence, isNutritionEntryStatus } from "@/lib/nutrition";
 import { createClient } from "@/lib/supabase/server";
+import {
+  endOfWeekSunday,
+  startOfWeekMonday,
+} from "@/lib/training-week";
+import { isPlanEntryStatus } from "@/lib/training";
 
 const PROFILE_SELECT = [
   "display_name",
@@ -120,6 +127,8 @@ export async function buildCoachContext(input: {
   const trainingFrom = shiftCoachDate(input.localDate, -14);
   const nutritionFrom = shiftCoachDate(input.localDate, -7);
   const eventsFrom = shiftCoachDate(input.localDate, -14);
+  const weekStart = startOfWeekMonday(input.localDate);
+  const weekEnd = endOfWeekSunday(input.localDate);
 
   const [
     profileResult,
@@ -131,6 +140,8 @@ export async function buildCoachContext(input: {
     stepsResult,
     nutritionResult,
     eventsResult,
+    constraintsResult,
+    proposalsResult,
     nutritionTargetsEnsured,
   ] = await Promise.all([
     supabase
@@ -171,12 +182,12 @@ export async function buildCoachContext(input: {
     supabase
       .from("training_plan_entries")
       .select(
-        "plan_date, training_type, title, focus, planned_duration_minutes, status, training_session_id",
+        "id, plan_date, original_plan_date, training_type, title, focus, planned_duration_minutes, status, training_session_id, skip_reason",
       )
       .eq("user_id", input.userId)
-      .gte("plan_date", trainingFrom)
-      .lte("plan_date", input.localDate)
-      .order("plan_date", { ascending: false }),
+      .gte("plan_date", weekStart)
+      .lte("plan_date", weekEnd)
+      .order("plan_date", { ascending: true }),
     supabase
       .from("daily_steps")
       .select("step_date, steps")
@@ -204,6 +215,21 @@ export async function buildCoachContext(input: {
       .order("event_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("availability_constraints")
+      .select("id, start_date, end_date, constraint_type, notes, active")
+      .eq("user_id", input.userId)
+      .eq("active", true)
+      .gte("end_date", input.localDate)
+      .order("start_date", { ascending: true })
+      .limit(20),
+    supabase
+      .from("training_plan_proposals")
+      .select("id, status, reason, changes, created_at")
+      .eq("user_id", input.userId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(5),
     ensureNutritionTargetsForUser(supabase, input.userId),
   ]);
 
@@ -230,6 +256,18 @@ export async function buildCoachContext(input: {
   }
   if (stepsResult.error) {
     console.error("[coach-context] Steps:", stepsResult.error.message);
+  }
+  if (constraintsResult.error) {
+    console.error(
+      "[coach-context] Availability:",
+      constraintsResult.error.message,
+    );
+  }
+  if (proposalsResult.error) {
+    console.error(
+      "[coach-context] Proposals:",
+      proposalsResult.error.message,
+    );
   }
   if (nutritionResult.error) {
     console.error("[coach-context] Nutrition:", nutritionResult.error.message);
@@ -349,31 +387,87 @@ export async function buildCoachContext(input: {
     });
   }
 
-  const plannedTraining: CoachChatPlanContext[] = (planResult.data ?? [])
+  const weekPlan: CoachChatPlanContext[] = [];
+  for (const row of planResult.data ?? []) {
+    const record = row as Record<string, unknown>;
+    if (
+      typeof record.id !== "string" ||
+      typeof record.plan_date !== "string" ||
+      typeof record.training_type !== "string" ||
+      typeof record.title !== "string" ||
+      !isPlanEntryStatus(record.status)
+    ) {
+      continue;
+    }
+    weekPlan.push({
+      id: record.id,
+      date: record.plan_date,
+      originalDate:
+        typeof record.original_plan_date === "string"
+          ? record.original_plan_date
+          : null,
+      trainingType: record.training_type,
+      title: record.title,
+      focus: typeof record.focus === "string" ? record.focus : null,
+      plannedDurationMinutes:
+        typeof record.planned_duration_minutes === "number"
+          ? record.planned_duration_minutes
+          : null,
+      status: record.status,
+      completed: record.status === "completed",
+      skipReason:
+        typeof record.skip_reason === "string" ? record.skip_reason : null,
+      linkedSessionId:
+        typeof record.training_session_id === "string"
+          ? record.training_session_id
+          : null,
+    });
+  }
+
+  const plannedTraining = weekPlan.filter(
+    (item) => item.status !== "rescheduled",
+  );
+
+  const availabilityConstraints: CoachChatAvailabilityContext[] = (
+    constraintsResult.data ?? []
+  )
     .map((row) => {
       const record = row as Record<string, unknown>;
       if (
-        typeof record.plan_date !== "string" ||
-        typeof record.training_type !== "string" ||
-        typeof record.title !== "string" ||
-        (record.status !== "planned" && record.status !== "completed")
+        typeof record.id !== "string" ||
+        typeof record.start_date !== "string" ||
+        typeof record.end_date !== "string" ||
+        typeof record.constraint_type !== "string"
       ) {
         return null;
       }
       return {
-        date: record.plan_date,
-        trainingType: record.training_type,
-        title: record.title,
-        focus: typeof record.focus === "string" ? record.focus : null,
-        plannedDurationMinutes:
-          typeof record.planned_duration_minutes === "number"
-            ? record.planned_duration_minutes
-            : null,
-        status: record.status,
-        completed: record.status === "completed",
+        id: record.id,
+        startDate: record.start_date,
+        endDate: record.end_date,
+        constraintType: record.constraint_type,
+        notes: typeof record.notes === "string" ? record.notes : null,
       };
     })
-    .filter((row): row is CoachChatPlanContext => row !== null);
+    .filter((row): row is CoachChatAvailabilityContext => row !== null);
+
+  const pendingProposals: CoachChatProposalContext[] = (
+    proposalsResult.data ?? []
+  )
+    .map((row) => {
+      const record = row as Record<string, unknown>;
+      if (typeof record.id !== "string" || typeof record.status !== "string") {
+        return null;
+      }
+      const changes = Array.isArray(record.changes) ? record.changes : [];
+      return {
+        id: record.id,
+        status: record.status,
+        reason: typeof record.reason === "string" ? record.reason : null,
+        changeCount: changes.length,
+      };
+    })
+    .filter((row): row is CoachChatProposalContext => row !== null);
 
   const profileRow = profileResult.data as unknown as Record<
     string,
@@ -471,8 +565,9 @@ export async function buildCoachContext(input: {
       checkIn:
         checkIns.find((item) => item.date === input.localDate) ?? null,
       training: training.filter((item) => item.date === input.localDate),
-      plannedTraining:
-        plannedTraining.find((item) => item.date === input.localDate) ?? null,
+      plannedTraining: plannedTraining.filter(
+        (item) => item.date === input.localDate,
+      ),
       steps:
         stepsHistory.find((item) => item.date === input.localDate) ?? null,
       nutrition: nutrition.filter((item) => item.date === input.localDate),
@@ -487,6 +582,9 @@ export async function buildCoachContext(input: {
       steps: stepsHistory.filter((item) => item.date !== input.localDate),
       nutrition: nutrition.filter((item) => item.date !== input.localDate),
     },
+    weekPlan,
+    availabilityConstraints,
+    pendingProposals,
     coachEvents,
     conversation: {
       id: input.conversationId,

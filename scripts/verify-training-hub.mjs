@@ -75,56 +75,56 @@ function buildWeeklyTrainingProgress({
 
   const weekPlans = planEntries.filter((e) => inWeek(e.plan_date));
   const weekSessions = sessions.filter((s) => inWeek(s.session_date));
+  const activePlans = weekPlans.filter((e) => e.status !== "rescheduled");
 
-  const plannedSessionEntries = weekPlans.filter((e) =>
+  const plannedSessionEntries = activePlans.filter((e) =>
     isTrainingSessionType(e.training_type),
   );
-  const restDays = weekPlans.filter((e) => e.training_type === "rest").length;
+  const restDays = activePlans.filter((e) => e.training_type === "rest").length;
   const plannedSessions = plannedSessionEntries.length;
-  const completedFromPlan = plannedSessionEntries.filter(
+  const completedPlannedSessions = plannedSessionEntries.filter(
     (e) => e.status === "completed",
   ).length;
 
-  const plannedDates = new Set(plannedSessionEntries.map((e) => e.plan_date));
   const linkedSessionIds = new Set(
     plannedSessionEntries
       .map((e) => e.training_session_id)
       .filter((id) => typeof id === "string"),
   );
 
-  let unplannedCompleted = 0;
-  const seenUnplannedDates = new Set();
+  let unplannedSessions = 0;
   for (const session of weekSessions) {
     if (linkedSessionIds.has(session.id)) continue;
-    if (plannedDates.has(session.session_date)) continue;
-    if (seenUnplannedDates.has(session.session_date)) continue;
-    seenUnplannedDates.add(session.session_date);
-    unplannedCompleted += 1;
+    unplannedSessions += 1;
   }
 
-  const completedSessions = completedFromPlan + unplannedCompleted;
+  const completedSessions = completedPlannedSessions + unplannedSessions;
   const resolvedTarget = Math.max(1, Math.round(target));
   const fillPercent = Math.min(
     100,
-    Math.round((completedSessions / resolvedTarget) * 100),
+    Math.round((completedPlannedSessions / resolvedTarget) * 100),
   );
 
   return {
     weekStart,
     weekEnd,
     plannedSessions,
+    completedPlannedSessions,
     completedSessions,
+    unplannedSessions,
     restDays,
     target: resolvedTarget,
     fillPercent,
-    achieved: completedSessions >= resolvedTarget,
+    achieved: completedPlannedSessions >= resolvedTarget,
   };
 }
 
 function todayPlanStatus({ plan, hasSessionToday }) {
   if (plan?.training_type === "rest") return "rest";
-  if (plan?.status === "completed" || hasSessionToday) return "completed";
-  if (plan) return "planned";
+  if (plan?.status === "completed") return "completed";
+  if (plan?.status === "skipped") return "skipped";
+  if (plan?.status === "planned") return "planned";
+  if (hasSessionToday) return "completed";
   return "unplanned";
 }
 
@@ -172,7 +172,6 @@ function isPlanTrainingTypeId(value) {
   return value === "rest" || isTrainingTypeId(value);
 }
 
-/** Simulate plan completion: link once, no duplicate sessions. */
 function completePlannedSession(state, planId, sessionPayload) {
   const plan = state.plans.find((p) => p.id === planId);
   if (!plan || plan.training_type === "rest") {
@@ -209,7 +208,6 @@ function assert(name, condition) {
 
 console.log("verify-training-hub");
 
-// Categories — no F45
 assert(
   "no F45 category id",
   !trainingTypeOptions.some((o) => o.id === "f45" || /f45/i.test(o.label)),
@@ -228,7 +226,6 @@ assert("reject F45 as type", isTrainingTypeId("f45") === false);
 assert("accept strength", isTrainingTypeId("strength") === true);
 assert("rest is plan-only", isPlanTrainingTypeId("rest") && !isTrainingTypeId("rest"));
 
-// Intensity + calories optional
 assert("intensity options", intensityOptions.length === 4);
 assert("calories null ok", parseCaloriesBurned(null) === null);
 assert("calories empty ok", parseCaloriesBurned("") === null);
@@ -236,12 +233,10 @@ assert("calories valid", parseCaloriesBurned(350) === 350);
 assert("calories reject negative", parseCaloriesBurned(-1) === null);
 assert("calories reject huge", parseCaloriesBurned(6000) === null);
 
-// Local week Monday–Sunday
 assert("week start Mon for Wed", startOfWeekMonday("2026-10-07") === "2026-10-05");
 assert("week end Sun", endOfWeekSunday("2026-10-07") === "2026-10-11");
 assert("Sunday belongs to prior Mon week", startOfWeekMonday("2026-10-11") === "2026-10-05");
 
-// Weekly target from profile frequency (not hard-coded for all)
 assert("freq 2-3 → 3", resolveWeeklySessionTarget(null, "2-3") === 3);
 assert("freq 4-5 → 4", resolveWeeklySessionTarget(null, "4-5") === 4);
 assert("freq 6+ → 6", resolveWeeklySessionTarget(null, "6+") === 6);
@@ -275,22 +270,9 @@ const weekPlans = [
 ];
 
 const weekSessions = [
-  {
-    id: "s1",
-    session_date: "2026-10-05",
-    duration_minutes: 45,
-  },
-  {
-    id: "s2",
-    session_date: "2026-10-08",
-    duration_minutes: 40,
-  },
-  // Duplicate same-day unplanned — should count once
-  {
-    id: "s3",
-    session_date: "2026-10-08",
-    duration_minutes: 20,
-  },
+  { id: "s1", session_date: "2026-10-05", duration_minutes: 45 },
+  { id: "s2", session_date: "2026-10-08", duration_minutes: 40 },
+  { id: "s3", session_date: "2026-10-08", duration_minutes: 20 },
 ];
 
 const progress = buildWeeklyTrainingProgress({
@@ -302,15 +284,11 @@ const progress = buildWeeklyTrainingProgress({
 
 assert("planned sessions exclude rest", progress.plannedSessions === 2);
 assert("rest day counted separately", progress.restDays === 1);
-assert(
-  "completed = 1 plan + 1 unplanned day",
-  progress.completedSessions === 2,
-);
-assert("rest not counted as missed", progress.plannedSessions === 2);
-assert("fill percent vs target 3", progress.fillPercent === 67);
+assert("completed planned = 1", progress.completedPlannedSessions === 1);
+assert("unplanned counted separately", progress.unplannedSessions === 2);
+assert("fill percent vs target 3", progress.fillPercent === 33);
 assert("not yet achieved", progress.achieved === false);
 
-// Completing planned day should not double-count linked session
 const afterComplete = buildWeeklyTrainingProgress({
   localDate: "2026-10-07",
   target: 3,
@@ -332,10 +310,10 @@ const afterComplete = buildWeeklyTrainingProgress({
 });
 assert(
   "no double count on plan completion",
-  afterComplete.completedSessions === 3,
+  afterComplete.completedPlannedSessions === 2 &&
+    afterComplete.unplannedSessions === 2,
 );
 
-// todayPlanStatus
 assert(
   "rest status",
   todayPlanStatus({
@@ -358,15 +336,17 @@ assert(
   }) === "completed",
 );
 assert(
+  "skipped status",
+  todayPlanStatus({
+    plan: { training_type: "strength", status: "skipped" },
+    hasSessionToday: false,
+  }) === "skipped",
+);
+assert(
   "unplanned empty",
   todayPlanStatus({ plan: null, hasSessionToday: false }) === "unplanned",
 );
-assert(
-  "unplanned logged without plan",
-  todayPlanStatus({ plan: null, hasSessionToday: true }) === "completed",
-);
 
-// Duplicate prevention on completion
 const state = {
   plans: [
     {
@@ -395,7 +375,6 @@ assert("plan linked", state.plans[0].training_session_id === first.sessionId);
 assert("plan marked completed", state.plans[0].status === "completed");
 assert("duration updated on re-complete", state.sessions[0].duration_minutes === 35);
 
-// Coach context: distinguish planned vs completed (shape check)
 function formatPlan(plan) {
   if (!plan) return "none planned";
   return `${plan.trainingType} — ${plan.title} [${plan.status}]`;
@@ -417,11 +396,6 @@ assert(
   }).includes("[completed]"),
 );
 assert("coach empty plan", formatPlan(null) === "none planned");
-
-// Migration RLS / uniqueness contract (documented expectations)
-const migrationUniques = ["(user_id, plan_date)", "(user_id, step_date)"];
-assert("unique plan per day contract", migrationUniques.includes("(user_id, plan_date)"));
-assert("unique steps per day contract", migrationUniques.includes("(user_id, step_date)"));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

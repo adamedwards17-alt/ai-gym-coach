@@ -44,10 +44,16 @@ export type ParsedCoachEvent = {
   event_date: string;
 };
 
+export type ParsedPlanProposal = {
+  reason: string | null;
+  changes: Array<Record<string, unknown>>;
+};
+
 export type ParsedCoachChatResponse = {
   reply: string;
   title: string | null;
   events: ParsedCoachEvent[];
+  planProposal: ParsedPlanProposal | null;
   structured: boolean;
 };
 
@@ -175,6 +181,7 @@ export function parseCoachChatResponse(
       reply,
       title: null,
       events: [],
+      planProposal: null,
       structured: false,
     };
   }
@@ -213,10 +220,33 @@ export function parseCoachChatResponse(
     }
   }
 
+  let planProposal: ParsedPlanProposal | null = null;
+  const proposalRaw = record.plan_proposal ?? record.planProposal;
+  if (proposalRaw && typeof proposalRaw === "object" && !Array.isArray(proposalRaw)) {
+    const proposal = proposalRaw as Record<string, unknown>;
+    const changes = Array.isArray(proposal.changes) ? proposal.changes : [];
+    const normalizedChanges = changes
+      .filter(
+        (item): item is Record<string, unknown> =>
+          !!item && typeof item === "object" && !Array.isArray(item),
+      )
+      .slice(0, 12);
+    if (normalizedChanges.length > 0) {
+      planProposal = {
+        reason:
+          typeof proposal.reason === "string" && proposal.reason.trim()
+            ? proposal.reason.trim().slice(0, 400)
+            : null,
+        changes: normalizedChanges,
+      };
+    }
+  }
+
   return {
     reply,
     title,
     events: events.slice(0, 3),
+    planProposal,
     structured: true,
   };
 }

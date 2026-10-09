@@ -42,7 +42,10 @@ type TrainingLogExperienceProps = {
   planEntryId?: string | null;
   initialType?: TrainingTypeId | null;
   initialTitle?: string | null;
+  /** Prefill actual duration only when editing an existing actual value. */
   initialDurationMinutes?: number | null;
+  /** Shown as planned reference — not treated as actual until confirmed. */
+  plannedDurationMinutes?: number | null;
   /** When embedded in the hub, hide the outer chrome/recent list. */
   onSaved?: () => void;
   embedded?: boolean;
@@ -53,6 +56,7 @@ export function TrainingLogExperience({
   initialType = null,
   initialTitle = null,
   initialDurationMinutes = null,
+  plannedDurationMinutes = null,
   onSaved,
   embedded = false,
 }: TrainingLogExperienceProps) {
@@ -63,6 +67,7 @@ export function TrainingLogExperience({
     durationMinutes: initialDurationMinutes,
     durationSkipped: false,
   }));
+  const [notes, setNotes] = useState("");
   const [editing, setEditing] = useState<Step | null>(null);
   const [sessions, setSessions] = useState<TrainingSessionRecord[]>([]);
   const [ready, setReady] = useState(false);
@@ -130,6 +135,7 @@ export function TrainingLogExperience({
       trainingType: draft.trainingType,
       title: draft.title,
       durationMinutes: draft.durationSkipped ? null : draft.durationMinutes,
+      notes: notes.trim() || null,
       intensity: draft.intensity,
       caloriesBurned: draft.caloriesBurned,
       planEntryId,
@@ -288,7 +294,9 @@ export function TrainingLogExperience({
         {draft.title ? (
           <>
             <CoachMessage id="train-q-duration">
-              Roughly how long?
+              {plannedDurationMinutes
+                ? `Planned ${plannedDurationMinutes} min — what was the actual duration?`
+                : "Roughly how long?"}
             </CoachMessage>
             {(draft.durationSkipped || draft.durationMinutes !== null) &&
             step !== "duration" ? (
@@ -485,6 +493,25 @@ export function TrainingLogExperience({
 
         {step === "done" && !justSaved ? (
           <div className="flex flex-col gap-3 pl-10">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12px] text-muted">
+                Notes (optional)
+              </span>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                rows={2}
+                placeholder="How did it feel?"
+                className="rounded-2xl border border-border bg-surface/60 px-4 py-3 text-[14px] outline-none"
+              />
+            </label>
+            {plannedDurationMinutes != null &&
+            draft.durationMinutes != null ? (
+              <p className="text-[12px] text-muted">
+                Planned {plannedDurationMinutes} min → actual{" "}
+                {draft.durationMinutes} min
+              </p>
+            ) : null}
             {saveError ? (
               <p role="alert" className="text-[13px] leading-6 text-muted">
                 {saveError}

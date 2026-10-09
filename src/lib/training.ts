@@ -15,7 +15,11 @@ export type TrainingIntensityId =
   | "hard"
   | "very_hard";
 
-export type PlanEntryStatus = "planned" | "completed";
+export type PlanEntryStatus =
+  | "planned"
+  | "completed"
+  | "skipped"
+  | "rescheduled";
 
 export type DurationOptionId = "15" | "30" | "45" | "60" | "75" | "skip";
 
@@ -28,6 +32,13 @@ export type TrainingSessionDraft = {
   caloriesBurned: number | null;
 };
 
+export type StrengthExerciseDetail = {
+  exercise: string;
+  sets: number | null;
+  reps: number | null;
+  weightKg: number | null;
+};
+
 export type TrainingSessionRecord = {
   id: string;
   session_date: string;
@@ -37,6 +48,7 @@ export type TrainingSessionRecord = {
   notes: string | null;
   intensity: TrainingIntensityId | null;
   calories_burned: number | null;
+  strength_details: StrengthExerciseDetail[] | null;
   created_at: string;
 };
 
@@ -49,6 +61,11 @@ export type TrainingPlanEntryRecord = {
   planned_duration_minutes: number | null;
   status: PlanEntryStatus;
   training_session_id: string | null;
+  original_plan_date: string | null;
+  skip_reason: string | null;
+  skip_notes: string | null;
+  sort_order: number;
+  rescheduled_from_id: string | null;
   created_at: string;
 };
 
@@ -143,7 +160,59 @@ export function isTrainingIntensityId(
 }
 
 export function isPlanEntryStatus(value: unknown): value is PlanEntryStatus {
-  return value === "planned" || value === "completed";
+  return (
+    value === "planned" ||
+    value === "completed" ||
+    value === "skipped" ||
+    value === "rescheduled"
+  );
+}
+
+export function parseStrengthDetails(
+  raw: unknown,
+): StrengthExerciseDetail[] | null {
+  if (raw == null) {
+    return null;
+  }
+  if (typeof raw === "string") {
+    try {
+      return parseStrengthDetails(JSON.parse(raw) as unknown);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return null;
+  }
+  const details: StrengthExerciseDetail[] = [];
+  for (const item of raw.slice(0, 20)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const exercise =
+      typeof record.exercise === "string"
+        ? record.exercise.trim().slice(0, 80)
+        : "";
+    if (!exercise) {
+      continue;
+    }
+    const sets =
+      typeof record.sets === "number" && Number.isFinite(record.sets)
+        ? Math.max(0, Math.round(record.sets))
+        : null;
+    const reps =
+      typeof record.reps === "number" && Number.isFinite(record.reps)
+        ? Math.max(0, Math.round(record.reps))
+        : null;
+    const weightRaw = record.weightKg ?? record.weight_kg;
+    const weightKg =
+      typeof weightRaw === "number" && Number.isFinite(weightRaw)
+        ? Math.max(0, Math.round(weightRaw * 10) / 10)
+        : null;
+    details.push({ exercise, sets, reps, weightKg });
+  }
+  return details.length > 0 ? details : null;
 }
 
 export function labelForTrainingType(

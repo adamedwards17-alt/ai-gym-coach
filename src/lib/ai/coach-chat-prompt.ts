@@ -3,6 +3,10 @@ import {
   isMealInspirationConversation,
   MEAL_INSPIRATION_WORKFLOW_PROMPT,
 } from "@/lib/meal-inspiration";
+import {
+  isSkipWorkoutConversation,
+  SKIP_WORKOUT_WORKFLOW_PROMPT,
+} from "@/lib/skip-workout-coach";
 
 export const COACH_CHAT_SYSTEM_PROMPT = `You are the user's personal fitness coach inside AI Gym Coach.
 
@@ -30,11 +34,19 @@ Nutrition guidance:
 - Daily targets are guidance, not a moral score. Never shame the user for going over. Never encourage compensatory restriction or punishment workouts.
 - Prefer practical meal suggestions using remaining protein/carbs/fat and the user's preferences — do not prescribe ketogenic or other specialised diets unless the user asks.
 
+Training / plan guidance:
+- Distinguish planned, completed, skipped and rescheduled sessions. Never invent completion.
+- Never treat a plan_proposal as applied until the context shows it accepted (pending proposals are suggestions only).
+- Respect active availability constraints — do not recommend training on those dates.
+- Do not add manually entered exercise calories into nutrition targets.
+- When recommending schedule changes, include plan_proposal with concrete entry_id values from the weekly plan.
+
 Respond with JSON only, no markdown fencing, in this exact shape:
 {
   "reply": "your message to the user as plain text",
   "title": "optional 3-5 word chat title",
-  "events": []
+  "events": [],
+  "plan_proposal": null
 }
 
 Rules for "title":
@@ -100,18 +112,23 @@ function formatTraining(
     .join("\n");
 }
 
-function formatPlan(
-  plan: CoachChatContext["today"]["plannedTraining"],
+function formatPlanList(
+  plans: CoachChatContext["today"]["plannedTraining"],
 ): string {
-  if (!plan) {
+  if (plans.length === 0) {
     return "none planned";
   }
-  const duration =
-    plan.plannedDurationMinutes != null
-      ? `${plan.plannedDurationMinutes} min planned`
-      : "duration unset";
-  const focus = plan.focus ? `; focus: ${plan.focus}` : "";
-  return `${plan.trainingType} — ${plan.title} [${plan.status}] (${duration})${focus}`;
+  return plans
+    .map((plan) => {
+      const duration =
+        plan.plannedDurationMinutes != null
+          ? `${plan.plannedDurationMinutes} min planned`
+          : "duration unset";
+      const focus = plan.focus ? `; focus: ${plan.focus}` : "";
+      const skip = plan.skipReason ? `; skip: ${plan.skipReason}` : "";
+      return `- id ${plan.id}: ${plan.trainingType} — ${plan.title} [${plan.status}] (${duration})${focus}${skip}`;
+    })
+    .join("\n");
 }
 
 function formatSteps(steps: CoachChatContext["today"]["steps"]): string {
@@ -174,8 +191,17 @@ ${formatNutrition(day.planned)}`;
 }
 
 export function buildCoachChatContextPrompt(context: CoachChatContext): string {
-  const { profile, today, recent, coachEvents, conversation, localDate } =
-    context;
+  const {
+    profile,
+    today,
+    recent,
+    weekPlan,
+    availabilityConstraints,
+    pendingProposals,
+    coachEvents,
+    conversation,
+    localDate,
+  } = context;
 
   const eventsBlock =
     coachEvents.length === 0
@@ -226,12 +252,57 @@ User profile:
 
 Today:
 - ${formatCheckIn("Check-in", today.checkIn)}
-- Planned training (do not invent completion): ${formatPlan(today.plannedTraining)}
+- Planned training (do not invent completion):
+${formatPlanList(today.plannedTraining)}
 - Training logged:
 ${formatTraining(today.training)}
 - Steps: ${formatSteps(today.steps)}
 - Nutrition day:
 ${formatNutritionDay(today.nutritionDay)}
+
+This week's plan (Mon–Sun, use entry ids in plan_proposal):
+${
+  weekPlan.length === 0
+    ? "none"
+    : weekPlan
+        .map(
+          (item) =>
+            `- id ${item.id} | ${item.date}${
+              item.originalDate && item.originalDate !== item.date
+                ? ` (orig ${item.originalDate})`
+                : ""
+            }: ${item.trainingType} — ${item.title} [${item.status}]`,
+        )
+        .join("\n")
+}
+
+Active availability constraints (do not schedule training on these dates):
+${
+  availabilityConstraints.length === 0
+    ? "none"
+    : availabilityConstraints
+        .map(
+          (item) =>
+            `- ${item.startDate}–${item.endDate}: ${item.constraintType}${
+              item.notes ? ` — ${item.notes}` : ""
+            }`,
+        )
+        .join("\n")
+}
+
+Pending plan proposals (suggestions only — not applied until accepted):
+${
+  pendingProposals.length === 0
+    ? "none"
+    : pendingProposals
+        .map(
+          (item) =>
+            `- ${item.id} [${item.status}] ${item.changeCount} change(s)${
+              item.reason ? `: ${item.reason}` : ""
+            }`,
+        )
+        .join("\n")
+}
 
 Recent check-ins (last 7 days, excluding today):
 ${recentCheckIns}
@@ -239,14 +310,14 @@ ${recentCheckIns}
 Recent training (last 14 days, excluding today):
 ${formatTraining(recent.training)}
 
-Recent planned sessions (excluding today):
+Other planned sessions this week (excluding today):
 ${
   recent.plannedTraining.length === 0
     ? "none"
     : recent.plannedTraining
         .map(
           (item) =>
-            `- ${item.date}: ${item.trainingType} — ${item.title} [${item.status}]`,
+            `- id ${item.id} | ${item.date}: ${item.trainingType} — ${item.title} [${item.status}]`,
         )
         .join("\n")
 }
@@ -263,6 +334,10 @@ ${eventsBlock}
 ${
   isMealInspirationConversation(conversation.title)
     ? `${MEAL_INSPIRATION_WORKFLOW_PROMPT}\n`
+    : ""
+}${
+  isSkipWorkoutConversation(conversation.title)
+    ? `${SKIP_WORKOUT_WORKFLOW_PROMPT}\n`
     : ""
 }
 Respond to the latest user message in this conversation using the JSON schema from your instructions.`;

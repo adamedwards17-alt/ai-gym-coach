@@ -1,5 +1,6 @@
 "use server";
 
+import { createTrainingPlanProposal } from "@/app/actions/training";
 import { buildCoachContext } from "@/lib/ai/build-coach-context";
 import {
   GeminiProvider,
@@ -17,8 +18,14 @@ import {
   MEAL_INSPIRATION_SEED_MESSAGE,
   MEAL_INSPIRATION_TITLE,
 } from "@/lib/meal-inspiration";
+import {
+  buildSkipWorkoutSeedMessage,
+  SKIP_WORKOUT_CHAT_TITLE,
+} from "@/lib/skip-workout-coach";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { parsePlanProposalChanges, type SkipReasonId } from "@/lib/training-plan";
+import { isValidSessionDate } from "@/lib/training";
 
 export type ListConversationsResult =
   | { status: "ok"; conversations: CoachConversationRecord[] }
@@ -29,6 +36,10 @@ export type CreateConversationResult =
   | { status: "error"; message: string };
 
 export type StartMealInspirationResult =
+  | { status: "created"; conversation: CoachConversationRecord }
+  | { status: "error"; message: string };
+
+export type StartSkipWorkoutResult =
   | { status: "created"; conversation: CoachConversationRecord }
   | { status: "error"; message: string };
 
@@ -324,6 +335,94 @@ export async function startMealInspirationChat(input: {
   }
 }
 
+/**
+ * Opens a Coach chat after the user skips a planned workout.
+ * Plan is already marked skipped; Coach must not change it until confirmed.
+ */
+export async function startSkipWorkoutCoachChat(input: {
+  localDate: string;
+  planEntryId: string;
+  title: string;
+  planDate: string;
+  reason: SkipReasonId;
+  notes?: string | null;
+}): Promise<StartSkipWorkoutResult> {
+  if (!isValidCoachDate(input.localDate) || !isValidSessionDate(input.planDate)) {
+    return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so coaching couldn’t start.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("coach_conversations")
+      .insert({
+        user_id: user.id,
+        title: SKIP_WORKOUT_CHAT_TITLE,
+      })
+      .select(CONVERSATION_SELECT)
+      .single();
+
+    if (error || !data) {
+      console.error(
+        "[coach] Skip workout chat create failed:",
+        error?.message ?? "No row",
+      );
+      return {
+        status: "error",
+        message: "Coaching couldn’t start. Try again.",
+      };
+    }
+
+    const conversation = toConversation(data as Record<string, unknown>);
+    if (!conversation) {
+      return {
+        status: "error",
+        message: "Coaching couldn’t start. Try again.",
+      };
+    }
+
+    const seeded = await sendCoachMessage({
+      conversationId: conversation.id,
+      content: buildSkipWorkoutSeedMessage({
+        title: input.title,
+        planDate: input.planDate,
+        reason: input.reason,
+        notes: input.notes,
+      }),
+      localDate: input.localDate,
+    });
+
+    if (seeded.status === "error" && !seeded.conversation) {
+      return { status: "error", message: seeded.message };
+    }
+
+    return {
+      status: "created",
+      conversation: seeded.conversation ?? conversation,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown skip coach error";
+    console.error("[coach] Skip workout chat failed:", message);
+    return {
+      status: "error",
+      message: "Coaching couldn’t start. Try again.",
+    };
+  }
+}
+
 export async function loadCoachConversation(
   conversationId: string,
 ): Promise<LoadConversationResult> {
@@ -445,6 +544,24 @@ async function generateAndPersistReply(input: {
 
       if (eventsError) {
         console.error("[coach] Events save failed:", eventsError.message);
+      }
+    }
+
+    if (parsed.planProposal) {
+      const changes = parsePlanProposalChanges(parsed.planProposal.changes);
+      if (changes.length > 0) {
+        const proposalResult = await createTrainingPlanProposal({
+          conversationId: input.conversationId,
+          reason: parsed.planProposal.reason,
+          changes,
+          idempotencyKey: `msg:${assistantRow.id}`,
+        });
+        if (proposalResult.status === "error") {
+          console.error(
+            "[coach] Plan proposal save failed:",
+            proposalResult.message,
+          );
+        }
       }
     }
 
