@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { lookupBarcodeProduct } from "@/app/actions/nutrition";
+import {
+  cameraPermissionMessage,
+  cameraUnavailableMessage,
+  readBrowserCameraEnvironment,
+} from "@/lib/barcode-capability";
 import { deriveDisplayName } from "@/lib/food-naming";
 import type { NutritionEstimate } from "@/lib/nutrition";
 import {
@@ -46,13 +51,15 @@ type BarcodeDetectorCtor = new (options?: {
   formats?: string[];
 }) => BarcodeDetectorLike;
 
+type ScannerControls = { stop: () => void };
+
 function getBarcodeDetector(): BarcodeDetectorCtor | null {
   if (typeof window === "undefined") {
     return null;
   }
   const ctor = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor })
     .BarcodeDetector;
-  return ctor ?? null;
+  return typeof ctor === "function" ? ctor : null;
 }
 
 function parsePositive(value: string): number | null {
@@ -135,6 +142,7 @@ export function BarcodeScanPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
+  const [startingCamera, setStartingCamera] = useState(false);
   const [manualBarcode, setManualBarcode] = useState("");
   const [product, setProduct] = useState<OpenFoodFactsProduct | null>(null);
   const [basis, setBasis] = useState<Basis>("grams");
@@ -149,8 +157,20 @@ export function BarcodeScanPanel({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const zxingControlsRef = useRef<ScannerControls | null>(null);
+  const nativeTimerRef = useRef<number | null>(null);
 
   const stopStream = useCallback(() => {
+    if (nativeTimerRef.current != null) {
+      window.clearInterval(nativeTimerRef.current);
+      nativeTimerRef.current = null;
+    }
+    try {
+      zxingControlsRef.current?.stop();
+    } catch {
+      // Ignore stop races while tearing down.
+    }
+    zxingControlsRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) {
@@ -158,7 +178,7 @@ export function BarcodeScanPanel({
     }
   }, []);
 
-  useEffect(() => stopStream, [stopStream]);
+  useEffect(() => () => stopStream(), [stopStream]);
 
   const runLookup = useCallback(
     async (rawBarcode: string) => {
@@ -195,7 +215,7 @@ export function BarcodeScanPanel({
         }
       } catch {
         setError(
-          "Product lookup failed. Try again or enter the food manually.",
+          "Product lookup failed. Check your connection and try again, or enter the food manually.",
         );
       } finally {
         setLooking(false);
@@ -204,79 +224,161 @@ export function BarcodeScanPanel({
     [stopStream],
   );
 
-  // Attach the camera stream and poll for barcodes while scanning.
+  // Attach the camera preview and run native BarcodeDetector or ZXing decode.
   useEffect(() => {
     if (step !== "scan") {
       return;
     }
-    const video = videoRef.current;
-    const stream = streamRef.current;
-    const Detector = getBarcodeDetector();
-    if (!video || !stream || !Detector) {
-      return;
-    }
 
-    video.srcObject = stream;
-    void video.play().catch(() => undefined);
-
-    const detector = new Detector({
-      formats: ["ean_13", "ean_8", "upc_a", "upc_e"],
-    });
+    let cancelled = false;
     let finished = false;
-    let busy = false;
 
-    const timer = window.setInterval(async () => {
-      if (busy || finished) {
+    async function startDecoding() {
+      const video = videoRef.current;
+      const stream = streamRef.current;
+      if (!video || !stream) {
         return;
       }
-      busy = true;
+
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      video.muted = true;
       try {
-        const codes = await detector.detect(video);
-        const raw = codes.find((code) => code.rawValue)?.rawValue;
-        if (raw && !finished) {
-          finished = true;
-          void runLookup(raw);
-        }
+        await video.play();
       } catch {
-        // Transient detection errors are expected while the camera warms up.
-      } finally {
-        busy = false;
+        // Autoplay can fail briefly; decoding still proceeds once frames arrive.
       }
-    }, 350);
+
+      if (cancelled || finished) {
+        return;
+      }
+
+      const Detector = getBarcodeDetector();
+      if (Detector) {
+        const detector = new Detector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e"],
+        });
+        let busy = false;
+        nativeTimerRef.current = window.setInterval(() => {
+          if (busy || finished || cancelled) {
+            return;
+          }
+          busy = true;
+          void detector
+            .detect(video)
+            .then((codes) => {
+              const raw = codes.find((code) => code.rawValue)?.rawValue;
+              if (raw && !finished && !cancelled) {
+                finished = true;
+                void runLookup(raw);
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              busy = false;
+            });
+        }, 350);
+        return;
+      }
+
+      // Safari / iOS: no BarcodeDetector — decode frames with ZXing.
+      try {
+        const { BrowserMultiFormatReader } = await import("@zxing/browser");
+        const { BarcodeFormat, DecodeHintType } = await import("@zxing/library");
+        if (cancelled || finished) {
+          return;
+        }
+
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.CODE_128,
+        ]);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+
+        const reader = new BrowserMultiFormatReader(hints);
+        let controls: ScannerControls | null = null;
+        controls = await reader.decodeFromStream(stream, video, (result) => {
+          if (!result || finished || cancelled) {
+            return;
+          }
+          const text = result.getText();
+          if (text) {
+            finished = true;
+            try {
+              controls?.stop();
+            } catch {
+              // Ignore.
+            }
+            void runLookup(text);
+          }
+        });
+        if (cancelled || finished) {
+          controls.stop();
+          return;
+        }
+        zxingControlsRef.current = controls;
+      } catch {
+        if (!cancelled) {
+          stopStream();
+          setNotice(
+            "Barcode decoding failed to start in this browser. Enter the barcode instead.",
+          );
+          setStep("manual");
+        }
+      }
+    }
+
+    void startDecoding();
 
     return () => {
+      cancelled = true;
       finished = true;
-      window.clearInterval(timer);
+      if (nativeTimerRef.current != null) {
+        window.clearInterval(nativeTimerRef.current);
+        nativeTimerRef.current = null;
+      }
+      try {
+        zxingControlsRef.current?.stop();
+      } catch {
+        // Ignore.
+      }
+      zxingControlsRef.current = null;
     };
-  }, [step, runLookup]);
+  }, [step, runLookup, stopStream]);
 
   async function startScan() {
     setError(null);
     setNotice(null);
 
-    if (!getBarcodeDetector() || !navigator.mediaDevices?.getUserMedia) {
-      setNotice(
-        "Camera scanning isn’t supported on this device or browser. Enter the barcode instead.",
-      );
+    const { capability } = readBrowserCameraEnvironment();
+    if (capability.status !== "ok") {
+      setNotice(cameraUnavailableMessage(capability.reason));
       setStep("manual");
       return;
     }
 
+    setStartingCamera(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       });
       streamRef.current = stream;
       setStep("scan");
     } catch (cause) {
       const name = cause instanceof DOMException ? cause.name : "";
-      setNotice(
-        name === "NotAllowedError" || name === "SecurityError"
-          ? "Camera access was blocked. You can allow it in your browser settings, or enter the barcode instead."
-          : "The camera couldn’t be started. Enter the barcode instead.",
-      );
+      setNotice(cameraPermissionMessage(name));
       setStep("manual");
+    } finally {
+      setStartingCamera(false);
     }
   }
 
@@ -399,19 +501,20 @@ export function BarcodeScanPanel({
           </p>
           <p className="mt-1 text-[13px] leading-5 text-muted">
             Scan the barcode or type the number to pull in the label nutrition.
+            Camera scanning needs HTTPS and permission.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || startingCamera}
               className={primaryButton}
               onClick={() => void startScan()}
             >
-              Scan barcode
+              {startingCamera ? "Starting camera…" : "Scan barcode"}
             </button>
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || startingCamera}
               className={secondaryButton}
               onClick={goManual}
             >
@@ -439,6 +542,7 @@ export function BarcodeScanPanel({
             ref={videoRef}
             playsInline
             muted
+            autoPlay
             aria-label="Camera preview"
             className="mt-3 aspect-[4/3] w-full rounded-2xl border border-border bg-black object-cover"
           />
@@ -517,7 +621,6 @@ export function BarcodeScanPanel({
             </p>
           ) : null}
 
-          {/* Portion */}
           <div className="mt-4 flex flex-wrap items-end gap-3">
             {serving ? (
               <div
@@ -570,7 +673,6 @@ export function BarcodeScanPanel({
             </p>
           ) : null}
 
-          {/* Nutrition */}
           <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
             {MACRO_FIELDS.map(({ key, label, unit }) => {
               const isMissing = scaled ? !scaled.present[key] : false;
