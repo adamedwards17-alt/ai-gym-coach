@@ -15,7 +15,7 @@ The user is the product owner and is not expected to manually edit code or run d
 - Prefer modifying existing components, actions, utilities and data flows rather than creating duplicate implementations.
 - Preserve existing product behaviour unless the user explicitly asks for it to change.
 - Do not introduce unnecessary dependencies.
-- Do not expose, print, commit or request secrets such as API keys or tokens.
+- Do not expose, print, commit or request secrets such as API keys, tokens, database passwords or Supabase access tokens.
 
 ## After making changes
 
@@ -45,7 +45,7 @@ When all validation checks pass:
 
 For normal product development work, the expected workflow is:
 
-IMPLEMENT → TEST → REVIEW DIFF → COMMIT → PUSH
+IMPLEMENT → (MIGRATION IF NEEDED) → TEST → REVIEW DIFF → COMMIT → PUSH
 
 Do not leave completed, tested product changes uncommitted unless the user explicitly asks you not to commit/push.
 
@@ -66,8 +66,9 @@ Never commit or push if:
 - A relevant test fails
 - There is an unresolved runtime error
 - The implementation is clearly incomplete
+- A required database migration could not be applied safely
 
-Instead, fix the issue and validate again.
+Instead, fix the issue and validate again. If a migration cannot be applied safely, stop and tell the user why — never pretend it succeeded.
 
 ## After pushing
 
@@ -79,17 +80,81 @@ Give the user a concise summary:
 - Commit hash
 - Confirmation that the push succeeded
 - Confirmation that Vercel deployment was triggered
+- Whether any Supabase migration was applied (and how)
 
-Do not ask the user to manually run commands unless something genuinely requires their action, such as applying a database migration in Supabase.
+Do not ask the user to manually run commands unless something genuinely requires their action (for example one-time Supabase CLI login/link).
 
-## Database migrations
+## Database migrations (Supabase CLI)
 
-If a database migration is required:
+This project uses version-controlled SQL migrations in `supabase/migrations/` and the Supabase CLI (`npx supabase` / npm scripts).
 
-- Create the migration in the repository.
-- Tell the user clearly that the migration must be applied to Supabase.
-- Do not pretend the database migration has been applied if you cannot apply it.
-- Once the user confirms the migration is applied, continue with validation and deployment.
+### Principles
+
+- Prefer **additive** migrations (`add column if not exists`, new tables, new indexes, new policies).
+- Never reset the remote database, drop tables, delete production data, or run destructive schema operations unless the user explicitly requests it.
+- Never invent or re-apply migrations that are already reflected in the remote schema.
+- Never print, commit or paste Supabase access tokens, database passwords, service-role keys or other secrets.
+- Migration filenames must use a unique 14-digit timestamp prefix, e.g. `20261009091100_nutrition_intelligence.sql`. Do not use bare dates like `20261009_name.sql` (versions collide).
+
+### Creating a migration
+
+When a feature needs schema changes:
+
+1. Create a new migration with:
+   - `npx supabase migration new <short_snake_name>`
+   - or an equivalently named additive SQL file under `supabase/migrations/`
+2. Put only the required SQL in that file.
+3. Do not edit or recreate older migration files to change production history.
+
+### Before applying to the remote project
+
+The CLI must be authenticated and linked (one-time human steps if not already done):
+
+1. `npm run supabase:login` — interactive browser login (preferred; do not store tokens in the repo).
+2. `npm run supabase:link` — links this repo to the existing remote project (may prompt for the database password from the Supabase dashboard).
+
+Then always inspect history before applying anything:
+
+```bash
+npm run supabase:migration:list
+npm run supabase:db:push:dry-run
+```
+
+Interpret the list carefully:
+
+- **Local only** rows are pending and may be pushable if additive and safe.
+- **Remote only** rows mean the remote history has versions not present locally — stop and reconcile; do not guess.
+- If older local migrations appear pending but the remote schema already contains those objects (because SQL was applied manually earlier), **do not** `db push` those old files. Instead repair history to mark them applied:
+  - `npx supabase migration repair --status applied --linked <version> [<version>...]`
+  - Re-run `npm run supabase:migration:list` and confirm only the truly new migration remains pending.
+- If anything is unclear, destructive, or conflicting: **stop and tell the user**. Do not apply.
+
+### Applying a pending migration (when safe)
+
+When the list/dry-run shows only the intended new additive migration(s) pending:
+
+1. Apply with `npm run supabase:db:push` (linked remote).
+2. Re-run `npm run supabase:migration:list` and confirm the migration is on both local and remote.
+3. Then run application validation (`tsc`, `lint`, `build`, verify scripts).
+4. Only after migration apply + app checks succeed: commit and push.
+
+### When automatic apply is not possible
+
+Stop and tell the user clearly:
+
+- What is blocking (not logged in, not linked, history mismatch, destructive SQL, dry-run unexpected, etc.)
+- The exact one-time or manual step needed
+- That the migration has **not** been applied
+
+Do not claim a migration was applied unless the CLI confirms it.
+
+### Useful npm scripts
+
+- `npm run supabase:login`
+- `npm run supabase:link`
+- `npm run supabase:migration:list`
+- `npm run supabase:db:push:dry-run`
+- `npm run supabase:db:push`
 
 ## Product-owner workflow
 
@@ -98,5 +163,6 @@ The user should generally only need to:
 1. Describe what they want.
 2. Review/test the result in the app.
 3. Report feedback.
+4. Complete rare one-time auth/link steps when the agent cannot (Supabase CLI login/link).
 
-The agent should handle implementation, testing, committing and pushing automatically when safe.
+The agent should handle implementation, migrations (when safe), testing, committing and pushing automatically when safe.

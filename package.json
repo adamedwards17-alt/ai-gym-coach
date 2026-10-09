@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "supabase": "supabase",
+    "supabase:login": "supabase login",
+    "supabase:link": "supabase link --project-ref tfqavwwlivqtbjrwsnfw",
+    "supabase:migration:list": "supabase migration list --linked",
+    "supabase:db:push": "supabase db push --linked",
+    "supabase:db:push:dry-run": "supabase db push --linked --dry-run"
   },
   "dependencies": {
     "@google/genai": "^2.28.0",
@@ -23,6 +29,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "supabase": "^2.120.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
