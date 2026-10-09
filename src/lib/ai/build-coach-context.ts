@@ -10,6 +10,8 @@ import type {
   CoachChatTrainingContext,
   CoachNutritionDayContext,
   CoachProfileContext,
+  CoachProgrammeContext,
+  CoachStrengthPerformanceContext,
   CoachWeeklyCheckInContext,
   CoachWeightContext,
 } from "@/lib/ai/types";
@@ -171,6 +173,9 @@ export async function buildCoachContext(input: {
     nutritionTargetsEnsured,
     weightsResult,
     weeklyCheckInsResult,
+    programmeResult,
+    phaseResult,
+    recentSetLogsResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -274,6 +279,28 @@ export async function buildCoachContext(input: {
       .eq("user_id", input.userId)
       .order("week_start_date", { ascending: false })
       .limit(4),
+    supabase
+      .from("training_programmes")
+      .select("id, name, status")
+      .eq("user_id", input.userId)
+      .eq("status", "active")
+      .maybeSingle(),
+    supabase
+      .from("training_phases")
+      .select("name, kind, status")
+      .eq("user_id", input.userId)
+      .in("status", ["active", "upcoming"])
+      .order("sort_order", { ascending: true })
+      .limit(4),
+    supabase
+      .from("workout_set_logs")
+      .select(
+        "exercise_id, set_number, weight_kg, reps, rir, completed, pain_reported, completed_at, training_session_id",
+      )
+      .eq("user_id", input.userId)
+      .eq("completed", true)
+      .order("completed_at", { ascending: false })
+      .limit(60),
   ]);
 
   if (profileResult.error) {
@@ -674,11 +701,116 @@ export async function buildCoachContext(input: {
     | { id: string; title: string | null }
     | null;
 
+  const phases = phaseResult.data ?? [];
+  const activePhase = phases.find(
+    (p) => (p as { status?: string }).status === "active",
+  ) as { name?: string; kind?: string } | undefined;
+  const upcomingPhase = phases.find(
+    (p) => (p as { status?: string }).status === "upcoming",
+  ) as { name?: string } | undefined;
+
+  // Compact recent strength set history for Coach Q&A (real logs only).
+  const recentStrength: CoachStrengthPerformanceContext[] = [];
+  const setsBySessionExercise = new Map<
+    string,
+    {
+      exerciseId: string;
+      sessionId: string;
+      sets: Array<{
+        setNumber: number;
+        weightKg: number | null;
+        reps: number | null;
+        rir: number | null;
+      }>;
+    }
+  >();
+  for (const row of recentSetLogsResult.data ?? []) {
+    const r = row as Record<string, unknown>;
+    if (typeof r.exercise_id !== "string" || typeof r.training_session_id !== "string") {
+      continue;
+    }
+    const key = `${r.training_session_id}:${r.exercise_id}`;
+    const bucket = setsBySessionExercise.get(key) ?? {
+      exerciseId: r.exercise_id,
+      sessionId: r.training_session_id,
+      sets: [],
+    };
+    bucket.sets.push({
+      setNumber: Number(r.set_number),
+      weightKg: r.weight_kg == null ? null : Number(r.weight_kg),
+      reps: r.reps == null ? null : Number(r.reps),
+      rir: r.rir == null ? null : Number(r.rir),
+    });
+    setsBySessionExercise.set(key, bucket);
+  }
+
+  const exerciseIds = [
+    ...new Set(
+      [...setsBySessionExercise.values()].map((b) => b.exerciseId),
+    ),
+  ].slice(0, 12);
+  const sessionIds = [
+    ...new Set(
+      [...setsBySessionExercise.values()].map((b) => b.sessionId),
+    ),
+  ].slice(0, 12);
+
+  if (exerciseIds.length > 0 && sessionIds.length > 0) {
+    const [{ data: exerciseNames }, { data: sessionDates }] = await Promise.all([
+      supabase
+        .from("exercises")
+        .select("id, name")
+        .in("id", exerciseIds),
+      supabase
+        .from("training_sessions")
+        .select("id, session_date")
+        .in("id", sessionIds),
+    ]);
+    const nameById = new Map(
+      (exerciseNames ?? []).map((e) => [
+        String((e as { id: string }).id),
+        String((e as { name: string }).name),
+      ]),
+    );
+    const dateById = new Map(
+      (sessionDates ?? []).map((s) => [
+        String((s as { id: string }).id),
+        String((s as { session_date: string }).session_date),
+      ]),
+    );
+    for (const bucket of setsBySessionExercise.values()) {
+      if (recentStrength.length >= 8) {
+        break;
+      }
+      recentStrength.push({
+        exerciseName: nameById.get(bucket.exerciseId) ?? "Exercise",
+        sessionDate: dateById.get(bucket.sessionId) ?? input.localDate,
+        sets: bucket.sets.sort((a, b) => a.setNumber - b.setNumber),
+        recommendation: null,
+      });
+    }
+  }
+
+  const programme: CoachProgrammeContext = {
+    programmeName:
+      typeof programmeResult.data?.name === "string"
+        ? programmeResult.data.name
+        : null,
+    activePhaseName:
+      typeof activePhase?.name === "string" ? activePhase.name : null,
+    activePhaseKind:
+      typeof activePhase?.kind === "string" ? activePhase.kind : null,
+    upcomingPhaseName:
+      typeof upcomingPhase?.name === "string" ? upcomingPhase.name : null,
+    recentStrength,
+  };
+
   return {
     localDate: input.localDate,
     profile,
     weight,
     weeklyCheckIns,
+    programme,
     today: {
       checkIn:
         checkIns.find((item) => item.date === input.localDate) ?? null,

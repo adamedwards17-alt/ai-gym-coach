@@ -77,7 +77,7 @@ const SESSION_SELECT =
   "id, session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, strength_details, created_at";
 
 const PLAN_SELECT =
-  "id, plan_date, training_type, title, focus, planned_duration_minutes, status, training_session_id, original_plan_date, skip_reason, skip_notes, sort_order, rescheduled_from_id, created_at";
+  "id, plan_date, training_type, title, focus, planned_duration_minutes, status, training_session_id, original_plan_date, skip_reason, skip_notes, sort_order, rescheduled_from_id, workout_template_id, created_at";
 
 const PROPOSAL_SELECT =
   "id, conversation_id, status, reason, changes, created_at, resolved_at";
@@ -165,6 +165,10 @@ function toPlanRecord(
         ? Math.round(planned)
         : null,
     status: row.status,
+    workout_template_id:
+      typeof row.workout_template_id === "string"
+        ? row.workout_template_id
+        : null,
     training_session_id:
       typeof row.training_session_id === "string"
         ? row.training_session_id

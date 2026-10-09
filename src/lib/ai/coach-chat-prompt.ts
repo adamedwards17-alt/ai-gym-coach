@@ -195,6 +195,7 @@ export function buildCoachChatContextPrompt(context: CoachChatContext): string {
     profile,
     weight,
     weeklyCheckIns,
+    programme,
     today,
     recent,
     weekPlan,
@@ -285,6 +286,31 @@ ${
             )}, recovery ${formatValue(item.recovery)}, rec ${formatValue(
               item.recommendationKind,
             )} (${formatValue(item.proposalStatus)})`,
+        )
+        .join("\n")
+}
+
+Training programme:
+- Programme: ${formatValue(programme.programmeName)}
+- Active phase: ${formatValue(programme.activePhaseName)} (${formatValue(
+    programme.activePhaseKind,
+  )})
+- Upcoming phase: ${formatValue(programme.upcomingPhaseName)}
+- Recent strength sets (do not invent missing values):
+${
+  programme.recentStrength.length === 0
+    ? "none"
+    : programme.recentStrength
+        .map(
+          (item) =>
+            `- ${item.sessionDate} ${item.exerciseName}: ${item.sets
+              .map(
+                (s) =>
+                  `set ${s.setNumber} ${formatValue(s.weightKg)}kg × ${formatValue(
+                    s.reps,
+                  )}${s.rir != null ? ` @${s.rir}RIR` : ""}`,
+              )
+              .join("; ")}`,
         )
         .join("\n")
 }

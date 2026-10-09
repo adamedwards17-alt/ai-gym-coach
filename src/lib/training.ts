@@ -66,6 +66,8 @@ export type TrainingPlanEntryRecord = {
   skip_notes: string | null;
   sort_order: number;
   rescheduled_from_id: string | null;
+  /** Linked resistance template when programme is active. */
+  workout_template_id: string | null;
   created_at: string;
 };
 

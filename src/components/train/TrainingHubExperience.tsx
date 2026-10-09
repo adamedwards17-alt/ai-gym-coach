@@ -4,6 +4,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { startSkipWorkoutCoachChat } from "@/app/actions/coach";
 import {
+  activateMuscleBuildingProgramme,
+  loadActiveProgramme,
+} from "@/app/actions/programme";
+import {
   deleteTrainingPlanEntry,
   loadTrainingHub,
   type TrainingHubData,
@@ -12,10 +16,12 @@ import {
   upsertTrainingPlanEntry,
   skipTrainingPlanEntry,
 } from "@/app/actions/training";
+import { InGymWorkoutExperience } from "@/components/train/InGymWorkoutExperience";
 import { PlanProposalCard } from "@/components/train/PlanProposalCard";
 import { WorkoutLogSheet } from "@/components/train/WorkoutLogSheet";
 import { CompactProgressBar } from "@/components/ui/CompactProgressBar";
 import { buildStepProgress } from "@/lib/activity-steps";
+import type { TrainingProgrammeSummary } from "@/lib/workout-tracking";
 import {
   buildPlannedVsActual,
   formatDurationDelta,
@@ -59,6 +65,12 @@ type LogSheetState = {
   session: TrainingSessionRecord | null;
 };
 
+type InGymState = {
+  planEntryId: string | null;
+  sessionId: string | null;
+  templateId: string | null;
+};
+
 export function TrainingHubExperience() {
   const router = useRouter();
   const [data, setData] = useState<TrainingHubData | null>(null);
@@ -66,6 +78,11 @@ export function TrainingHubExperience() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mode, setMode] = useState<HubMode>({ kind: "hub" });
   const [logSheet, setLogSheet] = useState<LogSheetState | null>(null);
+  const [inGym, setInGym] = useState<InGymState | null>(null);
+  const [programme, setProgramme] = useState<TrainingProgrammeSummary | null>(
+    null,
+  );
+  const [activatingProgramme, setActivatingProgramme] = useState(false);
   const [selectedWeekDate, setSelectedWeekDate] = useState(() =>
     getLocalSessionDate(),
   );
@@ -126,6 +143,13 @@ export function TrainingHubExperience() {
         setLoadError(result.message);
       }
       setReady(true);
+    });
+
+    void loadActiveProgramme().then((result) => {
+      if (cancelled || result.status !== "ok") {
+        return;
+      }
+      setProgramme(result.programme);
     });
 
     return () => {
@@ -236,10 +260,33 @@ export function TrainingHubExperience() {
   }
 
   function openComplete(plan: TrainingPlanEntryRecord) {
+    if (plan.training_type === "strength") {
+      const linked = findLinkedSession(plan);
+      setInGym({
+        planEntryId: plan.id,
+        // Re-open the linked session when editing an already completed workout.
+        sessionId: plan.status === "completed" && linked ? linked.id : null,
+        templateId: plan.workout_template_id,
+      });
+      return;
+    }
     setLogSheet({
       plan,
       session: findLinkedSession(plan),
     });
+  }
+
+  async function handleActivateProgramme() {
+    setActivatingProgramme(true);
+    setActionError(null);
+    const result = await activateMuscleBuildingProgramme({ weeksToSeed: 2 });
+    setActivatingProgramme(false);
+    if (result.status === "error") {
+      setActionError(result.message);
+      return;
+    }
+    setProgramme(result.programme);
+    await refresh(selectedWeekDate);
   }
 
   function openUnplannedLog() {
@@ -249,6 +296,24 @@ export function TrainingHubExperience() {
   if (!ready) {
     return (
       <p className="px-5 py-16 text-center text-[13px] text-muted">Loading…</p>
+    );
+  }
+
+  if (inGym) {
+    return (
+      <InGymWorkoutExperience
+        planEntryId={inGym.planEntryId}
+        sessionId={inGym.sessionId}
+        templateId={inGym.templateId}
+        onClose={() => {
+          setInGym(null);
+          void refresh(selectedWeekDate);
+        }}
+        onFinished={() => {
+          setInGym(null);
+          void refresh(selectedWeekDate);
+        }}
+      />
     );
   }
 
@@ -361,6 +426,37 @@ export function TrainingHubExperience() {
           Training plan
         </h1>
       </header>
+
+      {programme ? (
+        <section className="mb-6 rounded-2xl border border-border/70 px-4 py-3.5">
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+            Active phase
+          </p>
+          <p className="mt-1 text-[15px] text-foreground/92">
+            {programme.activePhase?.name ?? programme.name}
+          </p>
+          {programme.upcomingPhase ? (
+            <p className="mt-1 text-[13px] text-muted">
+              Next: {programme.upcomingPhase.name}
+            </p>
+          ) : null}
+        </section>
+      ) : (
+        <section className="mb-6 rounded-2xl border border-border/70 px-4 py-3.5">
+          <p className="text-[14px] leading-6 text-foreground/90">
+            Activate the 6-week muscle-building programme to load Workouts 1–3,
+            HIIT days and rest days onto your plan.
+          </p>
+          <button
+            type="button"
+            disabled={activatingProgramme}
+            onClick={() => void handleActivateProgramme()}
+            className="mt-3 min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px] disabled:opacity-60"
+          >
+            {activatingProgramme ? "Activating…" : "Activate programme"}
+          </button>
+        </section>
+      )}
 
       <nav
         aria-label="Week navigation"

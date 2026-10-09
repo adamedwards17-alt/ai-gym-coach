@@ -176,11 +176,27 @@ export type CoachChatMessageContext = {
   content: string;
 };
 
+export type CoachStrengthPerformanceContext = {
+  exerciseName: string;
+  sessionDate: string;
+  sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null; rir: number | null }>;
+  recommendation: string | null;
+};
+
+export type CoachProgrammeContext = {
+  programmeName: string | null;
+  activePhaseName: string | null;
+  activePhaseKind: string | null;
+  upcomingPhaseName: string | null;
+  recentStrength: CoachStrengthPerformanceContext[];
+};
+
 export type CoachChatContext = {
   localDate: string;
   profile: CoachProfileContext;
   weight: CoachWeightContext;
   weeklyCheckIns: CoachWeeklyCheckInContext[];
+  programme: CoachProgrammeContext;
   today: {
     checkIn: CoachChatCheckInContext | null;
     training: CoachChatTrainingContext[];
