@@ -91,7 +91,7 @@ export const trainingFrequencyOptions: Option[] = [
 
 export const trainingTypeOptions: Option[] = [
   { id: "weights", label: "Weights" },
-  { id: "hiit", label: "HIIT / F45" },
+  { id: "hiit", label: "HIIT" },
   { id: "cardio", label: "Cardio" },
   { id: "classes", label: "Classes" },
   { id: "sport", label: "Sport" },

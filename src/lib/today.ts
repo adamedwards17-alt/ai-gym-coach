@@ -38,7 +38,7 @@ export const feelingOptions: { id: FeelingId; label: string }[] = [
 
 export const planOptions: { id: PlanId; label: string }[] = [
   { id: "strength", label: "Strength training" },
-  { id: "hiit", label: "F45 / HIIT" },
+  { id: "hiit", label: "HIIT" },
   { id: "recovery", label: "Active recovery" },
   { id: "rest", label: "Rest day" },
   { id: "unsure", label: "Not sure yet" },

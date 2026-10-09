@@ -89,9 +89,53 @@ function formatTraining(
     .map((item) => {
       const duration =
         item.durationMinutes != null ? `${item.durationMinutes} min` : "duration unknown";
+      const intensity = item.intensity ? `; intensity: ${item.intensity}` : "";
+      const calories =
+        item.caloriesBurned != null
+          ? `; calories burned (manual): ${item.caloriesBurned}`
+          : "";
       const notes = item.notes ? `; notes: ${item.notes}` : "";
-      return `- ${item.date}: ${item.trainingType} — ${item.title} (${duration})${notes}`;
+      return `- ${item.date}: ${item.trainingType} — ${item.title} (${duration})${intensity}${calories}${notes}`;
     })
+    .join("\n");
+}
+
+function formatPlan(
+  plan: CoachChatContext["today"]["plannedTraining"],
+): string {
+  if (!plan) {
+    return "none planned";
+  }
+  const duration =
+    plan.plannedDurationMinutes != null
+      ? `${plan.plannedDurationMinutes} min planned`
+      : "duration unset";
+  const focus = plan.focus ? `; focus: ${plan.focus}` : "";
+  return `${plan.trainingType} — ${plan.title} [${plan.status}] (${duration})${focus}`;
+}
+
+function formatSteps(steps: CoachChatContext["today"]["steps"]): string {
+  if (!steps) {
+    return "unknown";
+  }
+  if (!steps.hasEntry) {
+    return `no manual entry yet (target ${steps.target.toLocaleString()})`;
+  }
+  return `${steps.steps?.toLocaleString()} / ${steps.target.toLocaleString()} (manual entry — not from Apple Health)`;
+}
+
+function formatRecentSteps(
+  items: CoachChatContext["recent"]["steps"],
+): string {
+  const withEntries = items.filter((item) => item.hasEntry);
+  if (withEntries.length === 0) {
+    return "none recorded";
+  }
+  return withEntries
+    .map(
+      (item) =>
+        `- ${item.date}: ${item.steps?.toLocaleString()} / ${item.target.toLocaleString()}`,
+    )
     .join("\n");
 }
 
@@ -182,8 +226,10 @@ User profile:
 
 Today:
 - ${formatCheckIn("Check-in", today.checkIn)}
+- Planned training (do not invent completion): ${formatPlan(today.plannedTraining)}
 - Training logged:
 ${formatTraining(today.training)}
+- Steps: ${formatSteps(today.steps)}
 - Nutrition day:
 ${formatNutritionDay(today.nutritionDay)}
 
@@ -192,6 +238,21 @@ ${recentCheckIns}
 
 Recent training (last 14 days, excluding today):
 ${formatTraining(recent.training)}
+
+Recent planned sessions (excluding today):
+${
+  recent.plannedTraining.length === 0
+    ? "none"
+    : recent.plannedTraining
+        .map(
+          (item) =>
+            `- ${item.date}: ${item.trainingType} — ${item.title} [${item.status}]`,
+        )
+        .join("\n")
+}
+
+Recent steps (manual, excluding today):
+${formatRecentSteps(recent.steps)}
 
 Recent nutrition (last 7 days, excluding today):
 ${formatNutrition(recent.nutrition)}

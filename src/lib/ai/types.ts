@@ -69,6 +69,28 @@ export type CoachChatTrainingContext = {
   title: string;
   durationMinutes: number | null;
   notes: string | null;
+  intensity: string | null;
+  caloriesBurned: number | null;
+  /** True when this came from a completed plan entry. */
+  fromPlan?: boolean;
+  status?: "planned" | "completed" | "logged";
+};
+
+export type CoachChatPlanContext = {
+  date: string;
+  trainingType: string;
+  title: string;
+  focus: string | null;
+  plannedDurationMinutes: number | null;
+  status: "planned" | "completed";
+  completed: boolean;
+};
+
+export type CoachChatStepsContext = {
+  date: string;
+  steps: number | null;
+  target: number;
+  hasEntry: boolean;
 };
 
 export type CoachChatNutritionContext = {
@@ -116,12 +138,16 @@ export type CoachChatContext = {
   today: {
     checkIn: CoachChatCheckInContext | null;
     training: CoachChatTrainingContext[];
+    plannedTraining: CoachChatPlanContext | null;
+    steps: CoachChatStepsContext | null;
     nutrition: CoachChatNutritionContext[];
     nutritionDay: CoachNutritionDayContext;
   };
   recent: {
     checkIns: CoachChatCheckInContext[];
     training: CoachChatTrainingContext[];
+    plannedTraining: CoachChatPlanContext[];
+    steps: CoachChatStepsContext[];
     nutrition: CoachChatNutritionContext[];
   };
   coachEvents: CoachChatEventContext[];

@@ -3,10 +3,13 @@ import type {
   CoachChatContext,
   CoachChatEventContext,
   CoachChatNutritionContext,
+  CoachChatPlanContext,
+  CoachChatStepsContext,
   CoachChatTrainingContext,
   CoachNutritionDayContext,
   CoachProfileContext,
 } from "@/lib/ai/types";
+import { resolveDailyStepTarget } from "@/lib/activity-steps";
 import {
   isCoachEventType,
   isCoachMessageRole,
@@ -43,6 +46,7 @@ const PROFILE_SELECT = [
   "meals_per_day",
   "nutrition_support",
   "coaching_style",
+  "daily_step_target",
 ].join(", ");
 
 function toProfileContext(row: Record<string, unknown>): CoachProfileContext {
@@ -123,6 +127,8 @@ export async function buildCoachContext(input: {
     messagesResult,
     checkInsResult,
     trainingResult,
+    planResult,
+    stepsResult,
     nutritionResult,
     eventsResult,
     nutritionTargetsEnsured,
@@ -155,13 +161,29 @@ export async function buildCoachContext(input: {
     supabase
       .from("training_sessions")
       .select(
-        "session_date, training_type, title, duration_minutes, notes, created_at",
+        "session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, created_at",
       )
       .eq("user_id", input.userId)
       .gte("session_date", trainingFrom)
       .lte("session_date", input.localDate)
       .order("session_date", { ascending: false })
       .order("created_at", { ascending: false }),
+    supabase
+      .from("training_plan_entries")
+      .select(
+        "plan_date, training_type, title, focus, planned_duration_minutes, status, training_session_id",
+      )
+      .eq("user_id", input.userId)
+      .gte("plan_date", trainingFrom)
+      .lte("plan_date", input.localDate)
+      .order("plan_date", { ascending: false }),
+    supabase
+      .from("daily_steps")
+      .select("step_date, steps")
+      .eq("user_id", input.userId)
+      .gte("step_date", checkInFrom)
+      .lte("step_date", input.localDate)
+      .order("step_date", { ascending: false }),
     supabase
       .from("nutrition_entries")
       .select(
@@ -202,6 +224,12 @@ export async function buildCoachContext(input: {
   }
   if (trainingResult.error) {
     console.error("[coach-context] Training:", trainingResult.error.message);
+  }
+  if (planResult.error) {
+    console.error("[coach-context] Plan:", planResult.error.message);
+  }
+  if (stepsResult.error) {
+    console.error("[coach-context] Steps:", stepsResult.error.message);
   }
   if (nutritionResult.error) {
     console.error("[coach-context] Nutrition:", nutritionResult.error.message);
@@ -292,28 +320,93 @@ export async function buildCoachContext(input: {
     })
     .filter((row): row is CoachChatCheckInContext => row !== null);
 
-  const training: CoachChatTrainingContext[] = (trainingResult.data ?? [])
+  const training: CoachChatTrainingContext[] = [];
+  for (const row of trainingResult.data ?? []) {
+    const record = row as Record<string, unknown>;
+    if (
+      typeof record.session_date !== "string" ||
+      typeof record.training_type !== "string" ||
+      typeof record.title !== "string"
+    ) {
+      continue;
+    }
+    training.push({
+      date: record.session_date,
+      trainingType: record.training_type,
+      title: record.title,
+      durationMinutes:
+        typeof record.duration_minutes === "number"
+          ? record.duration_minutes
+          : null,
+      notes: typeof record.notes === "string" ? record.notes : null,
+      intensity:
+        typeof record.intensity === "string" ? record.intensity : null,
+      caloriesBurned:
+        typeof record.calories_burned === "number"
+          ? record.calories_burned
+          : null,
+      status: "logged",
+    });
+  }
+
+  const plannedTraining: CoachChatPlanContext[] = (planResult.data ?? [])
     .map((row) => {
       const record = row as Record<string, unknown>;
       if (
-        typeof record.session_date !== "string" ||
+        typeof record.plan_date !== "string" ||
         typeof record.training_type !== "string" ||
-        typeof record.title !== "string"
+        typeof record.title !== "string" ||
+        (record.status !== "planned" && record.status !== "completed")
       ) {
         return null;
       }
       return {
-        date: record.session_date,
+        date: record.plan_date,
         trainingType: record.training_type,
         title: record.title,
-        durationMinutes:
-          typeof record.duration_minutes === "number"
-            ? record.duration_minutes
+        focus: typeof record.focus === "string" ? record.focus : null,
+        plannedDurationMinutes:
+          typeof record.planned_duration_minutes === "number"
+            ? record.planned_duration_minutes
             : null,
-        notes: typeof record.notes === "string" ? record.notes : null,
+        status: record.status,
+        completed: record.status === "completed",
       };
     })
-    .filter((row): row is CoachChatTrainingContext => row !== null);
+    .filter((row): row is CoachChatPlanContext => row !== null);
+
+  const profileRow = profileResult.data as unknown as Record<
+    string,
+    unknown
+  > | null;
+  const stepTarget = resolveDailyStepTarget(
+    typeof profileRow?.daily_step_target === "number"
+      ? profileRow.daily_step_target
+      : null,
+  );
+
+  const stepsByDate = new Map<string, number>();
+  for (const row of stepsResult.data ?? []) {
+    const record = row as Record<string, unknown>;
+    if (
+      typeof record.step_date === "string" &&
+      typeof record.steps === "number"
+    ) {
+      stepsByDate.set(record.step_date, record.steps);
+    }
+  }
+
+  const stepsHistory: CoachChatStepsContext[] = [];
+  for (let offset = 0; offset <= 7; offset += 1) {
+    const date = shiftCoachDate(input.localDate, -offset);
+    const steps = stepsByDate.get(date) ?? null;
+    stepsHistory.push({
+      date,
+      steps,
+      target: stepTarget,
+      hasEntry: steps != null,
+    });
+  }
 
   const nutrition: CoachChatNutritionContext[] = nutritionEntries.map(
     (entry) => ({
@@ -378,12 +471,20 @@ export async function buildCoachContext(input: {
       checkIn:
         checkIns.find((item) => item.date === input.localDate) ?? null,
       training: training.filter((item) => item.date === input.localDate),
+      plannedTraining:
+        plannedTraining.find((item) => item.date === input.localDate) ?? null,
+      steps:
+        stepsHistory.find((item) => item.date === input.localDate) ?? null,
       nutrition: nutrition.filter((item) => item.date === input.localDate),
       nutritionDay,
     },
     recent: {
       checkIns: checkIns.filter((item) => item.date !== input.localDate),
       training: training.filter((item) => item.date !== input.localDate),
+      plannedTraining: plannedTraining.filter(
+        (item) => item.date !== input.localDate,
+      ),
+      steps: stepsHistory.filter((item) => item.date !== input.localDate),
       nutrition: nutrition.filter((item) => item.date !== input.localDate),
     },
     coachEvents,

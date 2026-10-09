@@ -13,6 +13,7 @@ import { shiftCoachDate } from "@/lib/coach";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
+  isTrainingIntensityId,
   isTrainingTypeId,
   isValidSessionDate,
   type TrainingSessionRecord,
@@ -21,7 +22,7 @@ import type { PlanId } from "@/lib/today";
 import { NUTRITION_ENTRY_SELECT, toNutritionEntryRecord } from "@/lib/nutrition-day";
 
 const SESSION_SELECT =
-  "id, session_date, training_type, title, duration_minutes, notes, created_at";
+  "id, session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, created_at";
 
 export type TodayDashboardData = {
   localDate: string;
@@ -64,6 +65,11 @@ function toSessionRecord(
     return null;
   }
 
+  const calories =
+    row.calories_burned === null || row.calories_burned === undefined
+      ? null
+      : Number(row.calories_burned);
+
   return {
     id: row.id,
     session_date: row.session_date,
@@ -71,6 +77,11 @@ function toSessionRecord(
     title: row.title,
     duration_minutes: duration,
     notes: typeof row.notes === "string" ? row.notes : null,
+    intensity: isTrainingIntensityId(row.intensity) ? row.intensity : null,
+    calories_burned:
+      calories != null && Number.isFinite(calories) && calories >= 0
+        ? Math.round(calories)
+        : null,
     created_at: row.created_at,
   };
 }

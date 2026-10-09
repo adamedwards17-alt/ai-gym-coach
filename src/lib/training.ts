@@ -6,6 +6,17 @@ export type TrainingTypeId =
   | "recovery"
   | "other";
 
+/** Plan categories include Rest in addition to logged session types. */
+export type PlanTrainingTypeId = TrainingTypeId | "rest";
+
+export type TrainingIntensityId =
+  | "easy"
+  | "moderate"
+  | "hard"
+  | "very_hard";
+
+export type PlanEntryStatus = "planned" | "completed";
+
 export type DurationOptionId = "15" | "30" | "45" | "60" | "75" | "skip";
 
 export type TrainingSessionDraft = {
@@ -13,6 +24,8 @@ export type TrainingSessionDraft = {
   title: string | null;
   durationMinutes: number | null;
   durationSkipped: boolean;
+  intensity: TrainingIntensityId | null;
+  caloriesBurned: number | null;
 };
 
 export type TrainingSessionRecord = {
@@ -22,16 +35,45 @@ export type TrainingSessionRecord = {
   title: string;
   duration_minutes: number | null;
   notes: string | null;
+  intensity: TrainingIntensityId | null;
+  calories_burned: number | null;
+  created_at: string;
+};
+
+export type TrainingPlanEntryRecord = {
+  id: string;
+  plan_date: string;
+  training_type: PlanTrainingTypeId;
+  title: string;
+  focus: string | null;
+  planned_duration_minutes: number | null;
+  status: PlanEntryStatus;
+  training_session_id: string | null;
   created_at: string;
 };
 
 export const trainingTypeOptions: { id: TrainingTypeId; label: string }[] = [
   { id: "strength", label: "Strength" },
-  { id: "hiit", label: "F45 / HIIT" },
+  { id: "hiit", label: "HIIT" },
   { id: "cardio", label: "Cardio" },
   { id: "sport", label: "Sport" },
   { id: "recovery", label: "Recovery" },
   { id: "other", label: "Other" },
+];
+
+export const planTrainingTypeOptions: {
+  id: PlanTrainingTypeId;
+  label: string;
+}[] = [
+  ...trainingTypeOptions,
+  { id: "rest", label: "Rest" },
+];
+
+export const intensityOptions: { id: TrainingIntensityId; label: string }[] = [
+  { id: "easy", label: "Easy" },
+  { id: "moderate", label: "Moderate" },
+  { id: "hard", label: "Hard" },
+  { id: "very_hard", label: "Very hard" },
 ];
 
 export const durationOptions: { id: DurationOptionId; label: string }[] = [
@@ -42,6 +84,10 @@ export const durationOptions: { id: DurationOptionId; label: string }[] = [
   { id: "75", label: "75+ min" },
   { id: "skip", label: "Skip" },
 ];
+
+export const DEFAULT_WEEKLY_SESSION_TARGET = 3;
+export const MIN_WEEKLY_SESSION_TARGET = 1;
+export const MAX_WEEKLY_SESSION_TARGET = 14;
 
 /** Local calendar day as YYYY-MM-DD — never use UTC toISOString for this. */
 export function getLocalSessionDate(now = new Date()): string {
@@ -79,8 +125,40 @@ export function isTrainingTypeId(value: unknown): value is TrainingTypeId {
   );
 }
 
-export function labelForTrainingType(id: TrainingTypeId): string {
-  return trainingTypeOptions.find((option) => option.id === id)?.label ?? id;
+export function isPlanTrainingTypeId(
+  value: unknown,
+): value is PlanTrainingTypeId {
+  return value === "rest" || isTrainingTypeId(value);
+}
+
+export function isTrainingIntensityId(
+  value: unknown,
+): value is TrainingIntensityId {
+  return (
+    value === "easy" ||
+    value === "moderate" ||
+    value === "hard" ||
+    value === "very_hard"
+  );
+}
+
+export function isPlanEntryStatus(value: unknown): value is PlanEntryStatus {
+  return value === "planned" || value === "completed";
+}
+
+export function labelForTrainingType(
+  id: TrainingTypeId | PlanTrainingTypeId,
+): string {
+  return (
+    planTrainingTypeOptions.find((option) => option.id === id)?.label ?? id
+  );
+}
+
+export function labelForIntensity(id: TrainingIntensityId | null): string {
+  if (!id) {
+    return "Intensity skipped";
+  }
+  return intensityOptions.find((option) => option.id === id)?.label ?? id;
 }
 
 export function durationMinutesFromOption(
@@ -130,4 +208,55 @@ export function isDraftReadyToSave(draft: TrainingSessionDraft): boolean {
     draft.title.trim().length > 0 &&
     (draft.durationSkipped || draft.durationMinutes !== null)
   );
+}
+
+/**
+ * Map onboarding training_frequency ids to a sensible weekly session target.
+ */
+export function defaultWeeklySessionTargetFromFrequency(
+  frequency: string | null | undefined,
+): number {
+  switch (frequency) {
+    case "0-1":
+      return 1;
+    case "2-3":
+      return 3;
+    case "4-5":
+      return 4;
+    case "6+":
+      return 6;
+    default:
+      return DEFAULT_WEEKLY_SESSION_TARGET;
+  }
+}
+
+export function resolveWeeklySessionTarget(
+  stored: number | null | undefined,
+  frequency: string | null | undefined,
+): number {
+  if (
+    typeof stored === "number" &&
+    Number.isFinite(stored) &&
+    stored >= MIN_WEEKLY_SESSION_TARGET &&
+    stored <= MAX_WEEKLY_SESSION_TARGET
+  ) {
+    return Math.round(stored);
+  }
+  return defaultWeeklySessionTargetFromFrequency(frequency);
+}
+
+export function parseCaloriesBurned(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") {
+    return null;
+  }
+  const n =
+    typeof raw === "number" ? raw : Number(String(raw).replace(/,/g, ""));
+  if (!Number.isFinite(n)) {
+    return null;
+  }
+  const rounded = Math.round(n);
+  if (rounded < 0 || rounded > 5000) {
+    return null;
+  }
+  return rounded;
 }

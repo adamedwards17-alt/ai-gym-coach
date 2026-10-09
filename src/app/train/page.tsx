@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { TrainingLogExperience } from "@/components/train/TrainingLogExperience";
+import { TrainingHubExperience } from "@/components/train/TrainingHubExperience";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -23,5 +23,5 @@ export default async function TrainPage() {
     redirect(ONBOARDING_PATH);
   }
 
-  return <TrainingLogExperience />;
+  return <TrainingHubExperience />;
 }
