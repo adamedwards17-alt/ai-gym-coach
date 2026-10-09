@@ -8,7 +8,7 @@ import {
 type NutritionProgressBarsProps = {
   summary: NutritionDaySummary;
   now?: Date;
-  /** Compact Today layout: calories headline + protein + mini carbs/fat. */
+  /** Compact Today layout: calories headline + protein/carbs/fat row. */
   compact?: boolean;
 };
 
@@ -103,18 +103,36 @@ function ListRow({ item, compact }: { item: MacroProgress; compact: boolean }) {
   );
 }
 
+function CompactMacroCell({ item }: { item: MacroProgress }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-white/[0.06] px-2.5 py-2.5 sm:px-3">
+      <p className="truncate text-[11px] text-muted">{item.label}</p>
+      <p className="mt-0.5 truncate text-[13px] text-foreground">
+        {item.consumed.toLocaleString()}
+        <span className="text-muted">
+          {" "}
+          / {item.target.toLocaleString()}g
+        </span>
+      </p>
+      <div className="mt-2">
+        <ProgressTrack item={item} heightClass="h-1" />
+      </div>
+    </div>
+  );
+}
+
 function CompactTodayLayout({ progress }: { progress: MacroProgress[] }) {
   const calories = progress.find((item) => item.id === "calories");
-  const protein = progress.find((item) => item.id === "protein");
-  const carbs = progress.find((item) => item.id === "carbs");
-  const fat = progress.find((item) => item.id === "fat");
+  const macros = progress.filter(
+    (item) =>
+      item.id === "protein" || item.id === "carbs" || item.id === "fat",
+  );
 
-  if (!calories || !protein) {
+  if (!calories) {
     return null;
   }
 
   const calorieStatus = calories.statusLabel ?? toneText(calories.tone);
-  const proteinStatus = protein.statusLabel ?? toneText(protein.tone);
 
   return (
     <div aria-label="Today’s nutrition progress" className="flex flex-col gap-4">
@@ -142,62 +160,13 @@ function CompactTodayLayout({ progress }: { progress: MacroProgress[] }) {
         </div>
       </div>
 
-      <div>
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-[13px] font-medium text-foreground">Protein</p>
-          <p className="text-[13px] text-muted">
-            {protein.consumed.toLocaleString()} /{" "}
-            {protein.target.toLocaleString()} g
-          </p>
+      {macros.length > 0 ? (
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          {macros.map((item) => (
+            <CompactMacroCell key={item.id} item={item} />
+          ))}
         </div>
-        <div className="mt-2">
-          <ProgressTrack item={protein} heightClass="h-1.5" />
-        </div>
-        {proteinStatus ? (
-          <p className={`mt-1.5 text-[12px] ${STATUS_TEXT_CLASS[protein.tone]}`}>
-            {proteinStatus}
-          </p>
-        ) : (
-          <p className="mt-1.5 text-[12px] text-muted">
-            {Math.max(0, protein.remaining).toLocaleString()}g remaining
-          </p>
-        )}
-      </div>
-
-      {(carbs || fat) && (
-        <div className="grid grid-cols-2 gap-3">
-          {carbs ? (
-            <div className="rounded-xl border border-white/[0.06] px-3 py-2.5">
-              <p className="text-[11px] text-muted">Carbs</p>
-              <p className="mt-0.5 text-[13px] text-foreground">
-                {carbs.consumed.toLocaleString()}
-                <span className="text-muted">
-                  {" "}
-                  / {carbs.target.toLocaleString()}g
-                </span>
-              </p>
-              <div className="mt-2">
-                <ProgressTrack item={carbs} heightClass="h-1" />
-              </div>
-            </div>
-          ) : null}
-          {fat ? (
-            <div className="rounded-xl border border-white/[0.06] px-3 py-2.5">
-              <p className="text-[11px] text-muted">Fat</p>
-              <p className="mt-0.5 text-[13px] text-foreground">
-                {fat.consumed.toLocaleString()}
-                <span className="text-muted">
-                  {" "}
-                  / {fat.target.toLocaleString()}g
-                </span>
-              </p>
-              <div className="mt-2">
-                <ProgressTrack item={fat} heightClass="h-1" />
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }
