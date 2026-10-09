@@ -193,6 +193,8 @@ ${formatNutrition(day.planned)}`;
 export function buildCoachChatContextPrompt(context: CoachChatContext): string {
   const {
     profile,
+    weight,
+    weeklyCheckIns,
     today,
     recent,
     weekPlan,
@@ -235,6 +237,10 @@ User profile:
 - Weight (kg): ${formatValue(profile.weight_kg)}
 - Primary goal: ${formatValue(profile.primary_goal)}
 - Goal in their words: ${formatValue(profile.goal_in_own_words)}
+- Goal started: ${formatValue(profile.goal_started_at)}
+- Days on current goal: ${formatValue(profile.days_on_current_goal)}
+- Target weight (kg): ${formatValue(profile.target_weight_kg)}
+- Target date: ${formatValue(profile.target_date)}
 - Training frequency: ${formatValue(profile.training_frequency)}
 - Training types: ${formatList(profile.training_types)}
 - Training location: ${formatValue(profile.training_location)}
@@ -249,6 +255,39 @@ User profile:
 - Meals per day: ${formatValue(profile.meals_per_day)}
 - Nutrition support preference: ${formatValue(profile.nutrition_support)}
 - Preferred coaching style: ${formatValue(profile.coaching_style)}
+
+Weight history (canonical measurements — do not invent values):
+- Latest: ${formatValue(weight.latestKg)} kg on ${formatValue(weight.latestDate)}
+- ~7-day trend (kg): ${formatValue(weight.trendKg)}
+- Recent: ${
+    weight.recentMeasurements.length === 0
+      ? "none"
+      : weight.recentMeasurements
+          .map((m) => `${m.date}: ${m.kg} kg`)
+          .join("; ")
+  }
+
+Weekly check-ins (subjective + recommendation status):
+${
+  weeklyCheckIns.length === 0
+    ? "none"
+    : weeklyCheckIns
+        .map(
+          (item) =>
+            `- week ${item.weekStart} [${item.status}]: hunger ${formatValue(
+              item.hunger,
+            )}, energy ${formatValue(item.energy)}, mood ${formatValue(
+              item.mood,
+            )}, nutrition ${formatValue(
+              item.nutritionAdherence,
+            )}, training ${formatValue(
+              item.trainingAdherence,
+            )}, recovery ${formatValue(item.recovery)}, rec ${formatValue(
+              item.recommendationKind,
+            )} (${formatValue(item.proposalStatus)})`,
+        )
+        .join("\n")
+}
 
 Today:
 - ${formatCheckIn("Check-in", today.checkIn)}

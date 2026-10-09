@@ -17,6 +17,9 @@ const PROFILE_SELECT = [
   "weight_kg",
   "primary_goal",
   "goal_in_own_words",
+  "goal_started_at",
+  "target_weight_kg",
+  "target_date",
   "training_frequency",
   "training_types",
   "training_location",
@@ -58,6 +61,9 @@ type ProfileRow = {
   weight_kg: number | null;
   primary_goal: string | null;
   goal_in_own_words: string | null;
+  goal_started_at: string | null;
+  target_weight_kg: number | null;
+  target_date: string | null;
   training_frequency: string | null;
   training_types: string[] | null;
   training_location: string | null;
@@ -83,6 +89,11 @@ function toProfileContext(row: ProfileRow): CoachProfileContext {
     weight_kg: row.weight_kg,
     primary_goal: row.primary_goal,
     goal_in_own_words: row.goal_in_own_words,
+    goal_started_at: row.goal_started_at,
+    days_on_current_goal: null,
+    target_weight_kg:
+      row.target_weight_kg != null ? Number(row.target_weight_kg) : null,
+    target_date: row.target_date,
     training_frequency: row.training_frequency,
     training_types: row.training_types,
     training_location: row.training_location,

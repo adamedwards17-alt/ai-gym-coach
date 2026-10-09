@@ -687,6 +687,21 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
         onHabitLog={handleHabitBannerLog}
       />
 
+      {data?.weeklyCheckInDue ? (
+        <section className="today-reveal mb-6 rounded-2xl border border-border/70 px-4 py-3.5">
+          <p className="text-[14px] leading-6 text-foreground/90">
+            Your weekly check-in is due — a quick review of weight, hunger and
+            how the plan felt.
+          </p>
+          <Link
+            href="/progress?checkin=1"
+            className="mt-2 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+          >
+            Start weekly check-in
+          </Link>
+        </section>
+      ) : null}
+
       {data && coachingSummary ? (
         <section className="today-reveal mb-8">
           <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">

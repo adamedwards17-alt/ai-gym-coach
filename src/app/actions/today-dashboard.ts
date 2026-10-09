@@ -29,6 +29,10 @@ import {
   type TodayPlanWorkout,
 } from "@/lib/today-coaching-summary";
 import { NUTRITION_ENTRY_SELECT, toNutritionEntryRecord } from "@/lib/nutrition-day";
+import {
+  isWeeklyCheckInDue,
+  weekStartForLocalDate,
+} from "@/lib/weekly-check-ins";
 
 const SESSION_SELECT =
   "id, session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, strength_details, created_at";
@@ -54,6 +58,8 @@ export type TodayDashboardData = {
   /** Recent nutrition history for habit detection (excludes today). */
   habitHistory: HabitHistoryEntry[];
   stoppedHabitKeys: string[];
+  /** Weekly check-in due for the current UK-local week. */
+  weeklyCheckInDue: boolean;
 };
 
 export type LoadTodayDashboardResult =
@@ -161,6 +167,8 @@ export async function loadTodayDashboard(
     const supabase = await createClient();
     const habitFrom = shiftCoachDate(localDate, -14);
 
+    const thisWeekStart = weekStartForLocalDate(localDate);
+
     const [
       checkInResult,
       nutritionResult,
@@ -168,6 +176,7 @@ export async function loadTodayDashboard(
       planResult,
       habitPrefsResult,
       habitHistoryResult,
+      weeklyCheckInResult,
     ] = await Promise.all([
       loadTodaysCheckIn(localDate),
       loadNutritionDay(localDate),
@@ -195,6 +204,13 @@ export async function loadTodayDashboard(
         .order("logged_date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(120),
+      supabase
+        .from("weekly_check_ins")
+        .select("week_start_date, status")
+        .eq("user_id", user.id)
+        .eq("status", "completed")
+        .order("week_start_date", { ascending: false })
+        .limit(1),
     ]);
 
     if (checkInResult.status === "error") {
@@ -282,6 +298,19 @@ export async function loadTodayDashboard(
     const stoppedHabitKeys =
       habitPrefsResult.status === "ok" ? habitPrefsResult.stoppedKeys : [];
 
+    const latestCompletedWeek =
+      weeklyCheckInResult.data?.[0] &&
+      typeof weeklyCheckInResult.data[0].week_start_date === "string"
+        ? weeklyCheckInResult.data[0].week_start_date
+        : null;
+
+    const weeklyCheckInDue = isWeeklyCheckInDue({
+      today: localDate,
+      latestCompletedWeekStart: latestCompletedWeek,
+    });
+    // Quiet if they already completed this week's check-in.
+    const thisWeekDone = latestCompletedWeek === thisWeekStart;
+
     return {
       status: "ok",
       data: {
@@ -303,6 +332,7 @@ export async function loadTodayDashboard(
           hasIncompletePlannedTraining(todayPlanEntries),
         habitHistory,
         stoppedHabitKeys,
+        weeklyCheckInDue: weeklyCheckInDue && !thisWeekDone,
       },
     };
   } catch (error) {

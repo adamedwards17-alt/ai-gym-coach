@@ -68,9 +68,10 @@ export async function persistOnboarding(
       };
     }
 
+    const profile = toProfileRecord(draft);
     const { error } = await supabase.from("profiles").upsert({
       id: user.id,
-      ...toProfileRecord(draft),
+      ...profile,
     });
 
     if (error) {
@@ -80,6 +81,36 @@ export async function persistOnboarding(
         message:
           "Your profile couldn’t be saved. Check you’re signed in and try again.",
       };
+    }
+
+    // Seed canonical weight history when onboarding completes.
+    if (profile.weight_kg != null) {
+      const { count } = await supabase
+        .from("weight_measurements")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id);
+      if (!count) {
+        await supabase.from("weight_measurements").insert({
+          user_id: user.id,
+          measured_on: profile.goal_started_at,
+          weight_kg: profile.weight_kg,
+          source: "onboarding",
+        });
+      }
+    }
+
+    const { count: goalCount } = await supabase
+      .from("goal_history")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id);
+    if (!goalCount) {
+      await supabase.from("goal_history").insert({
+        user_id: user.id,
+        primary_goal: profile.primary_goal,
+        goal_in_own_words: profile.goal_in_own_words,
+        effective_from: profile.goal_started_at,
+        source: "onboarding",
+      });
     }
 
     return { status: "supabase" };

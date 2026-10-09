@@ -384,9 +384,18 @@ export type ProfileRecord = {
   nutrition_support: string;
   coaching_style: string;
   onboarding_completed_at: string;
+  goal_started_at: string;
+  preferred_weight_unit: "kg" | "st";
 };
 
 export function toProfileRecord(answers: OnboardingAnswers): ProfileRecord {
+  const localDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
   return {
     display_name: answers.displayName.trim(),
     primary_goal: answers.primaryGoal,
@@ -410,6 +419,8 @@ export function toProfileRecord(answers: OnboardingAnswers): ProfileRecord {
     nutrition_support: answers.nutritionSupport,
     coaching_style: answers.coachingStyle,
     onboarding_completed_at: new Date().toISOString(),
+    goal_started_at: localDate,
+    preferred_weight_unit: answers.weight.unit === "st" ? "st" : "kg",
   };
 }
 

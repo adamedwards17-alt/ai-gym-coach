@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ProgressExperience } from "@/components/progress/ProgressExperience";
+import { ProfileGoalsExperience } from "@/components/profile/ProfileGoalsExperience";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
-export const metadata: Metadata = { title: "Progress" };
+export const metadata: Metadata = { title: "Profile & Goals" };
 
-export default async function ProgressPage() {
+export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect(LOGIN_PATH);
@@ -24,5 +24,5 @@ export default async function ProgressPage() {
     redirect(ONBOARDING_PATH);
   }
 
-  return <ProgressExperience />;
+  return <ProfileGoalsExperience />;
 }

@@ -10,6 +10,8 @@ import type {
   CoachChatTrainingContext,
   CoachNutritionDayContext,
   CoachProfileContext,
+  CoachWeeklyCheckInContext,
+  CoachWeightContext,
 } from "@/lib/ai/types";
 import { resolveDailyStepTarget } from "@/lib/activity-steps";
 import {
@@ -18,6 +20,7 @@ import {
   shiftCoachDate,
   truncateMessagesForModel,
 } from "@/lib/coach";
+import { daysBetweenLocalDates } from "@/lib/goal-history";
 import {
   ensureNutritionTargetsForUser,
   summariseNutritionDay,
@@ -30,6 +33,11 @@ import {
   startOfWeekMonday,
 } from "@/lib/training-week";
 import { isPlanEntryStatus } from "@/lib/training";
+import {
+  latestWeightKg,
+  weightTrendKg,
+  type WeightMeasurementRecord,
+} from "@/lib/weight-measurements";
 
 const PROFILE_SELECT = [
   "display_name",
@@ -39,6 +47,9 @@ const PROFILE_SELECT = [
   "weight_kg",
   "primary_goal",
   "goal_in_own_words",
+  "goal_started_at",
+  "target_weight_kg",
+  "target_date",
   "training_frequency",
   "training_types",
   "training_location",
@@ -56,7 +67,12 @@ const PROFILE_SELECT = [
   "daily_step_target",
 ].join(", ");
 
-function toProfileContext(row: Record<string, unknown>): CoachProfileContext {
+function toProfileContext(
+  row: Record<string, unknown>,
+  localDate: string,
+): CoachProfileContext {
+  const goalStarted =
+    typeof row.goal_started_at === "string" ? row.goal_started_at : null;
   return {
     display_name:
       typeof row.display_name === "string" ? row.display_name : null,
@@ -70,6 +86,16 @@ function toProfileContext(row: Record<string, unknown>): CoachProfileContext {
       typeof row.goal_in_own_words === "string"
         ? row.goal_in_own_words
         : null,
+    goal_started_at: goalStarted,
+    days_on_current_goal: goalStarted
+      ? daysBetweenLocalDates(goalStarted, localDate)
+      : null,
+    target_weight_kg:
+      typeof row.target_weight_kg === "number"
+        ? Number(row.target_weight_kg)
+        : null,
+    target_date:
+      typeof row.target_date === "string" ? row.target_date : null,
     training_frequency:
       typeof row.training_frequency === "string"
         ? row.training_frequency
@@ -113,8 +139,8 @@ function toProfileContext(row: Record<string, unknown>): CoachProfileContext {
   };
 }
 
-function emptyProfile(): CoachProfileContext {
-  return toProfileContext({});
+function emptyProfile(localDate: string): CoachProfileContext {
+  return toProfileContext({}, localDate);
 }
 
 export async function buildCoachContext(input: {
@@ -143,6 +169,8 @@ export async function buildCoachContext(input: {
     constraintsResult,
     proposalsResult,
     nutritionTargetsEnsured,
+    weightsResult,
+    weeklyCheckInsResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -231,6 +259,21 @@ export async function buildCoachContext(input: {
       .order("created_at", { ascending: false })
       .limit(5),
     ensureNutritionTargetsForUser(supabase, input.userId),
+    supabase
+      .from("weight_measurements")
+      .select("id, measured_on, weight_kg, source, notes, created_at")
+      .eq("user_id", input.userId)
+      .order("measured_on", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("weekly_check_ins")
+      .select(
+        "week_start_date, status, hunger_rating, energy_rating, mood_rating, nutrition_adherence, training_adherence, recovery_feeling, recommendation_kind, recommendation_text, proposal_status",
+      )
+      .eq("user_id", input.userId)
+      .order("week_start_date", { ascending: false })
+      .limit(4),
   ]);
 
   if (profileResult.error) {
@@ -277,8 +320,81 @@ export async function buildCoachContext(input: {
   }
 
   const profile = profileResult.data
-    ? toProfileContext(profileResult.data as unknown as Record<string, unknown>)
-    : emptyProfile();
+    ? toProfileContext(
+        profileResult.data as unknown as Record<string, unknown>,
+        input.localDate,
+      )
+    : emptyProfile(input.localDate);
+
+  const weightMeasurements = (weightsResult.data ?? [])
+    .map((row): WeightMeasurementRecord | null => {
+      const r = row as Record<string, unknown>;
+      if (
+        typeof r.id !== "string" ||
+        typeof r.measured_on !== "string" ||
+        typeof r.created_at !== "string"
+      ) {
+        return null;
+      }
+      return {
+        id: r.id,
+        measured_on: r.measured_on,
+        weight_kg: Number(r.weight_kg),
+        source: "manual",
+        notes: null,
+        created_at: r.created_at,
+      };
+    })
+    .filter((m): m is WeightMeasurementRecord => m !== null);
+
+  const weight: CoachWeightContext = {
+    latestKg:
+      latestWeightKg(weightMeasurements) ?? profile.weight_kg,
+    latestDate: weightMeasurements[0]?.measured_on ?? null,
+    trendKg: weightTrendKg(weightMeasurements, input.localDate),
+    recentMeasurements: weightMeasurements.slice(0, 8).map((m) => ({
+      date: m.measured_on,
+      kg: m.weight_kg,
+    })),
+  };
+
+  const weeklyCheckIns: CoachWeeklyCheckInContext[] = (
+    weeklyCheckInsResult.data ?? []
+  )
+    .map((row) => {
+      const r = row as Record<string, unknown>;
+      if (typeof r.week_start_date !== "string") {
+        return null;
+      }
+      return {
+        weekStart: r.week_start_date,
+        status: typeof r.status === "string" ? r.status : "in_progress",
+        hunger: typeof r.hunger_rating === "number" ? r.hunger_rating : null,
+        energy: typeof r.energy_rating === "number" ? r.energy_rating : null,
+        mood: typeof r.mood_rating === "number" ? r.mood_rating : null,
+        nutritionAdherence:
+          typeof r.nutrition_adherence === "string"
+            ? r.nutrition_adherence
+            : null,
+        trainingAdherence:
+          typeof r.training_adherence === "string"
+            ? r.training_adherence
+            : null,
+        recovery:
+          typeof r.recovery_feeling === "string" ? r.recovery_feeling : null,
+        recommendationKind:
+          typeof r.recommendation_kind === "string"
+            ? r.recommendation_kind
+            : null,
+        recommendationText:
+          typeof r.recommendation_text === "string"
+            ? r.recommendation_text
+            : null,
+        proposalStatus:
+          typeof r.proposal_status === "string" ? r.proposal_status : null,
+      };
+    })
+    .filter((row): row is CoachWeeklyCheckInContext => row !== null);
 
   const nutritionEntries = (nutritionResult.data ?? [])
     .map((row) => toNutritionEntryRecord(row as Record<string, unknown>))
@@ -561,6 +677,8 @@ export async function buildCoachContext(input: {
   return {
     localDate: input.localDate,
     profile,
+    weight,
+    weeklyCheckIns,
     today: {
       checkIn:
         checkIns.find((item) => item.date === input.localDate) ?? null,

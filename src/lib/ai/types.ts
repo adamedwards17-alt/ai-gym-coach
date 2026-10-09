@@ -35,6 +35,10 @@ export type CoachProfileContext = {
   weight_kg: number | null;
   primary_goal: string | null;
   goal_in_own_words: string | null;
+  goal_started_at: string | null;
+  days_on_current_goal: number | null;
+  target_weight_kg: number | null;
+  target_date: string | null;
   training_frequency: string | null;
   training_types: string[] | null;
   training_location: string | null;
@@ -49,6 +53,27 @@ export type CoachProfileContext = {
   meals_per_day: number | null;
   nutrition_support: string | null;
   coaching_style: string | null;
+};
+
+export type CoachWeeklyCheckInContext = {
+  weekStart: string;
+  status: string;
+  hunger: number | null;
+  energy: number | null;
+  mood: number | null;
+  nutritionAdherence: string | null;
+  trainingAdherence: string | null;
+  recovery: string | null;
+  recommendationKind: string | null;
+  recommendationText: string | null;
+  proposalStatus: string | null;
+};
+
+export type CoachWeightContext = {
+  latestKg: number | null;
+  latestDate: string | null;
+  trendKg: number | null;
+  recentMeasurements: Array<{ date: string; kg: number }>;
 };
 
 export type CoachGenerationContext = {
@@ -154,6 +179,8 @@ export type CoachChatMessageContext = {
 export type CoachChatContext = {
   localDate: string;
   profile: CoachProfileContext;
+  weight: CoachWeightContext;
+  weeklyCheckIns: CoachWeeklyCheckInContext[];
   today: {
     checkIn: CoachChatCheckInContext | null;
     training: CoachChatTrainingContext[];

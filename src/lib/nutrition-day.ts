@@ -115,11 +115,15 @@ export function toNutritionEntryRecord(
 function toTargetRecord(
   row: Record<string, unknown>,
 ): NutritionTargetRecord | null {
+  const daily = toNullableFiniteNumber(row.daily_calories);
+  const protein = toNullableFiniteNumber(row.protein_g);
+  const carbs = toNullableFiniteNumber(row.carbs_g);
+  const fat = toNullableFiniteNumber(row.fat_g);
   if (
-    typeof row.daily_calories !== "number" ||
-    typeof row.protein_g !== "number" ||
-    typeof row.carbs_g !== "number" ||
-    typeof row.fat_g !== "number" ||
+    daily == null ||
+    protein == null ||
+    carbs == null ||
+    fat == null ||
     typeof row.methodology_version !== "string" ||
     typeof row.calculated_at !== "string"
   ) {
@@ -127,23 +131,72 @@ function toTargetRecord(
   }
 
   return {
-    daily_calories: row.daily_calories,
-    protein_g: row.protein_g,
-    carbs_g: row.carbs_g,
-    fat_g: row.fat_g,
+    daily_calories: Math.round(daily),
+    protein_g: Math.round(protein),
+    carbs_g: Math.round(carbs),
+    fat_g: Math.round(fat),
     methodology_version: row.methodology_version,
     calculated_at: row.calculated_at,
+    is_manual: row.is_manual === true,
   };
+}
+
+async function appendTargetHistory(
+  supabase: SupabaseClient,
+  input: {
+    userId: string;
+    targets: NutritionTargetRecord;
+    previous: NutritionTargetRecord | null;
+    source: string;
+    reason?: string | null;
+  },
+): Promise<void> {
+  const { error } = await supabase.from("nutrition_target_history").insert({
+    user_id: input.userId,
+    daily_calories: input.targets.daily_calories,
+    protein_g: input.targets.protein_g,
+    carbs_g: input.targets.carbs_g,
+    fat_g: input.targets.fat_g,
+    methodology_version: input.targets.methodology_version,
+    is_manual: input.targets.is_manual,
+    source: input.source,
+    reason: input.reason ?? null,
+    previous_daily_calories: input.previous?.daily_calories ?? null,
+    previous_protein_g: input.previous?.protein_g ?? null,
+    previous_carbs_g: input.previous?.carbs_g ?? null,
+    previous_fat_g: input.previous?.fat_g ?? null,
+  });
+  if (error) {
+    console.error("[nutrition-targets] History insert failed:", error.message);
+  }
 }
 
 export async function ensureNutritionTargetsForUser(
   supabase: SupabaseClient,
   userId: string,
+  options?: { forceRecalculate?: boolean },
 ): Promise<{
   targets: NutritionTargetRecord | null;
   status: NutritionDaySummary["targetsStatus"];
   message: string | null;
 }> {
+  const { data: existingRow } = await supabase
+    .from("nutrition_targets")
+    .select(
+      "daily_calories, protein_g, carbs_g, fat_g, methodology_version, calculated_at, is_manual",
+    )
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const existing = existingRow
+    ? toTargetRecord(existingRow as Record<string, unknown>)
+    : null;
+
+  // Preserve manual targets unless the caller explicitly recalculates.
+  if (existing?.is_manual && !options?.forceRecalculate) {
+    return { targets: existing, status: "ok", message: null };
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select(
@@ -202,6 +255,34 @@ export async function ensureNutritionTargetsForUser(
     };
   }
 
+  const unchanged =
+    existing &&
+    existing.daily_calories === calculated.targets.dailyCalories &&
+    existing.protein_g === calculated.targets.proteinG &&
+    existing.carbs_g === calculated.targets.carbsG &&
+    existing.fat_g === calculated.targets.fatG &&
+    !options?.forceRecalculate;
+
+  if (unchanged) {
+    return { targets: existing, status: "ok", message: null };
+  }
+
+  // Avoid noisy auto-adjustments from small weigh-in fluctuations.
+  // Meaningful target changes require explicit confirmation (forceRecalculate).
+  const MEANINGFUL_CALORIE_DELTA = 100;
+  if (
+    existing &&
+    !options?.forceRecalculate &&
+    Math.abs(existing.daily_calories - calculated.targets.dailyCalories) >=
+      MEANINGFUL_CALORIE_DELTA
+  ) {
+    return {
+      targets: existing,
+      status: "ok",
+      message: null,
+    };
+  }
+
   const payload = {
     user_id: userId,
     daily_calories: calculated.targets.dailyCalories,
@@ -210,13 +291,14 @@ export async function ensureNutritionTargetsForUser(
     fat_g: calculated.targets.fatG,
     methodology_version: NUTRITION_METHODOLOGY_VERSION,
     calculated_at: new Date().toISOString(),
+    is_manual: false,
   };
 
   const { data, error } = await supabase
     .from("nutrition_targets")
     .upsert(payload, { onConflict: "user_id" })
     .select(
-      "daily_calories, protein_g, carbs_g, fat_g, methodology_version, calculated_at",
+      "daily_calories, protein_g, carbs_g, fat_g, methodology_version, calculated_at, is_manual",
     )
     .single();
 
@@ -239,6 +321,99 @@ export async function ensureNutritionTargetsForUser(
       status: "missing",
       message: "Nutrition targets couldn’t be saved.",
     };
+  }
+
+  await appendTargetHistory(supabase, {
+    userId,
+    targets,
+    previous: existing,
+    source: options?.forceRecalculate ? "profile_recalc" : "auto",
+  });
+
+  return { targets, status: "ok", message: null };
+}
+
+/** Apply confirmed nutrition targets (manual or accepted proposal). */
+export async function applyNutritionTargetsForUser(
+  supabase: SupabaseClient,
+  input: {
+    userId: string;
+    dailyCalories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    isManual: boolean;
+    source: string;
+    reason?: string | null;
+  },
+): Promise<{
+  targets: NutritionTargetRecord | null;
+  status: "ok" | "error";
+  message: string | null;
+}> {
+  const { data: existingRow } = await supabase
+    .from("nutrition_targets")
+    .select(
+      "daily_calories, protein_g, carbs_g, fat_g, methodology_version, calculated_at, is_manual",
+    )
+    .eq("user_id", input.userId)
+    .maybeSingle();
+  const existing = existingRow
+    ? toTargetRecord(existingRow as Record<string, unknown>)
+    : null;
+
+  const payload = {
+    user_id: input.userId,
+    daily_calories: Math.round(input.dailyCalories),
+    protein_g: Math.round(input.proteinG),
+    carbs_g: Math.round(input.carbsG),
+    fat_g: Math.round(input.fatG),
+    methodology_version: NUTRITION_METHODOLOGY_VERSION,
+    calculated_at: new Date().toISOString(),
+    is_manual: input.isManual,
+  };
+
+  const { data, error } = await supabase
+    .from("nutrition_targets")
+    .upsert(payload, { onConflict: "user_id" })
+    .select(
+      "daily_calories, protein_g, carbs_g, fat_g, methodology_version, calculated_at, is_manual",
+    )
+    .single();
+
+  if (error || !data) {
+    return {
+      targets: null,
+      status: "error",
+      message: "Those targets couldn’t be saved.",
+    };
+  }
+
+  const targets = toTargetRecord(data as Record<string, unknown>);
+  if (!targets) {
+    return {
+      targets: null,
+      status: "error",
+      message: "Those targets couldn’t be saved.",
+    };
+  }
+
+  const identical =
+    existing &&
+    existing.daily_calories === targets.daily_calories &&
+    existing.protein_g === targets.protein_g &&
+    existing.carbs_g === targets.carbs_g &&
+    existing.fat_g === targets.fat_g &&
+    existing.is_manual === targets.is_manual;
+
+  if (!identical) {
+    await appendTargetHistory(supabase, {
+      userId: input.userId,
+      targets,
+      previous: existing,
+      source: input.source,
+      reason: input.reason,
+    });
   }
 
   return { targets, status: "ok", message: null };

@@ -71,6 +71,8 @@ export type NutritionTargetRecord = {
   fat_g: number;
   methodology_version: string;
   calculated_at: string;
+  /** When true, auto-recalc must not overwrite without explicit user action. */
+  is_manual: boolean;
 };
 
 export type NutritionDaySummary = {

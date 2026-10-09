@@ -51,6 +51,22 @@ export function SiteHeader({ signedIn }: { signedIn: boolean }) {
                 );
               })}
             </nav>
+            <Link
+              href="/profile"
+              aria-label="Profile and goals"
+              aria-current={
+                pathname === "/profile" || pathname.startsWith("/profile/")
+                  ? "page"
+                  : undefined
+              }
+              className={`text-[13px] transition-colors ${
+                pathname === "/profile" || pathname.startsWith("/profile/")
+                  ? "text-foreground"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              Profile
+            </Link>
             <SignOutButton />
           </div>
         ) : null}

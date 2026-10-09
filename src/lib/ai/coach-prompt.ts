@@ -70,6 +70,10 @@ export function buildCoachUserPrompt(context: CoachGenerationContext): string {
 - Weight (kg): ${formatValue(profile.weight_kg)}
 - Primary goal: ${formatValue(profile.primary_goal)}
 - Goal in their words: ${formatValue(profile.goal_in_own_words)}
+- Goal started: ${formatValue(profile.goal_started_at)}
+- Days on current goal: ${formatValue(profile.days_on_current_goal)}
+- Target weight (kg): ${formatValue(profile.target_weight_kg)}
+- Target date: ${formatValue(profile.target_date)}
 - Training frequency: ${formatValue(profile.training_frequency)}
 - Training types: ${formatList(profile.training_types)}
 - Training location: ${formatValue(profile.training_location)}
