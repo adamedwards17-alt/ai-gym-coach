@@ -13,6 +13,8 @@ import { shiftCoachDate } from "@/lib/coach";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
+  isPlanEntryStatus,
+  isPlanTrainingTypeId,
   isTrainingIntensityId,
   isTrainingTypeId,
   isValidSessionDate,
@@ -20,21 +22,35 @@ import {
   type TrainingSessionRecord,
 } from "@/lib/training";
 import type { PlanId } from "@/lib/today";
+import {
+  hasCompletedPlannedTraining,
+  hasIncompletePlannedTraining,
+  primaryPlanIdFromEntries,
+  type TodayPlanWorkout,
+} from "@/lib/today-coaching-summary";
 import { NUTRITION_ENTRY_SELECT, toNutritionEntryRecord } from "@/lib/nutrition-day";
 
 const SESSION_SELECT =
   "id, session_date, training_type, title, duration_minutes, notes, intensity, calories_burned, strength_details, created_at";
+
+const PLAN_SELECT =
+  "id, plan_date, training_type, title, focus, planned_duration_minutes, status, training_session_id, original_plan_date, skip_reason, skip_notes, sort_order, rescheduled_from_id, created_at";
 
 export type TodayDashboardData = {
   localDate: string;
   hasCheckIn: boolean;
   checkIn: CompletedDailyCheckIn | null;
   coachTake: string | null;
+  /** Coarse plan signal for legacy next-action / coach-moment helpers. */
   plannedTraining: PlanId | null;
+  /** Source of truth: today's training plan entries. */
+  todayPlanEntries: TodayPlanWorkout[];
   nutrition: NutritionDaySummary | null;
   loggedMealTypes: Array<MealTypeId | null>;
   trainingSession: TrainingSessionRecord | null;
+  todaySessions: TrainingSessionRecord[];
   hasTrainingSession: boolean;
+  hasIncompletePlannedTraining: boolean;
   /** Recent nutrition history for habit detection (excludes today). */
   habitHistory: HabitHistoryEntry[];
   stoppedHabitKeys: string[];
@@ -88,6 +104,32 @@ function toSessionRecord(
   };
 }
 
+function toPlanWorkout(row: Record<string, unknown>): TodayPlanWorkout | null {
+  if (
+    typeof row.id !== "string" ||
+    !isPlanTrainingTypeId(row.training_type) ||
+    typeof row.title !== "string" ||
+    !isPlanEntryStatus(row.status)
+  ) {
+    return null;
+  }
+  const planned =
+    row.planned_duration_minutes === null ||
+    row.planned_duration_minutes === undefined
+      ? null
+      : Number(row.planned_duration_minutes);
+  return {
+    id: row.id,
+    title: row.title,
+    training_type: row.training_type,
+    status: row.status,
+    planned_duration_minutes:
+      planned != null && Number.isFinite(planned) && planned > 0
+        ? Math.round(planned)
+        : null,
+  };
+}
+
 /**
  * Loads Today dashboard inputs. Next-action is resolved on the client with
  * the device's local clock so time-of-day stays accurate.
@@ -119,29 +161,41 @@ export async function loadTodayDashboard(
     const supabase = await createClient();
     const habitFrom = shiftCoachDate(localDate, -14);
 
-    const [checkInResult, nutritionResult, trainingResult, habitPrefsResult, habitHistoryResult] =
-      await Promise.all([
-        loadTodaysCheckIn(localDate),
-        loadNutritionDay(localDate),
-        supabase
-          .from("training_sessions")
-          .select(SESSION_SELECT)
-          .eq("user_id", user.id)
-          .eq("session_date", localDate)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        listNutritionHabitPrefs(),
-        supabase
-          .from("nutrition_entries")
-          .select(NUTRITION_ENTRY_SELECT)
-          .eq("user_id", user.id)
-          .gte("logged_date", habitFrom)
-          .lt("logged_date", localDate)
-          .order("logged_date", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(120),
-      ]);
+    const [
+      checkInResult,
+      nutritionResult,
+      trainingResult,
+      planResult,
+      habitPrefsResult,
+      habitHistoryResult,
+    ] = await Promise.all([
+      loadTodaysCheckIn(localDate),
+      loadNutritionDay(localDate),
+      supabase
+        .from("training_sessions")
+        .select(SESSION_SELECT)
+        .eq("user_id", user.id)
+        .eq("session_date", localDate)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("training_plan_entries")
+        .select(PLAN_SELECT)
+        .eq("user_id", user.id)
+        .eq("plan_date", localDate)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true }),
+      listNutritionHabitPrefs(),
+      supabase
+        .from("nutrition_entries")
+        .select(NUTRITION_ENTRY_SELECT)
+        .eq("user_id", user.id)
+        .gte("logged_date", habitFrom)
+        .lt("logged_date", localDate)
+        .order("logged_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(120),
+    ]);
 
     if (checkInResult.status === "error") {
       return { status: "error", message: checkInResult.message };
@@ -155,6 +209,17 @@ export async function loadTodayDashboard(
       console.error(
         "[today-dashboard] Training load failed:",
         trainingResult.error.message,
+      );
+      return {
+        status: "error",
+        message: "Today couldn’t be loaded. Try again.",
+      };
+    }
+
+    if (planResult.error) {
+      console.error(
+        "[today-dashboard] Plan load failed:",
+        planResult.error.message,
       );
       return {
         status: "error",
@@ -177,9 +242,17 @@ export async function loadTodayDashboard(
       ...nutrition.plannedEntries,
     ].map((entry) => entry.meal_type);
 
-    const trainingSession = trainingResult.data
-      ? toSessionRecord(trainingResult.data as Record<string, unknown>)
-      : null;
+    const todaySessions = (trainingResult.data ?? [])
+      .map((row) => toSessionRecord(row as Record<string, unknown>))
+      .filter((session): session is TrainingSessionRecord => session !== null);
+
+    const todayPlanEntries = (planResult.data ?? [])
+      .map((row) => toPlanWorkout(row as Record<string, unknown>))
+      .filter((entry): entry is TodayPlanWorkout => entry !== null)
+      .filter((entry) => entry.status !== "rescheduled");
+
+    const trainingSession = todaySessions[0] ?? null;
+    const planFromEntries = primaryPlanIdFromEntries(todayPlanEntries);
 
     const checkIn =
       checkInResult.status === "found" ? checkInResult.checkIn : null;
@@ -217,11 +290,17 @@ export async function loadTodayDashboard(
         checkIn,
         coachTake:
           checkInResult.status === "found" ? checkInResult.coachTake : null,
-        plannedTraining: checkIn?.plan ?? null,
+        plannedTraining: planFromEntries ?? checkIn?.plan ?? null,
+        todayPlanEntries,
         nutrition,
         loggedMealTypes,
         trainingSession,
-        hasTrainingSession: trainingSession !== null,
+        todaySessions,
+        hasTrainingSession:
+          hasCompletedPlannedTraining(todayPlanEntries) ||
+          todaySessions.length > 0,
+        hasIncompletePlannedTraining:
+          hasIncompletePlannedTraining(todayPlanEntries),
         habitHistory,
         stoppedHabitKeys,
       },

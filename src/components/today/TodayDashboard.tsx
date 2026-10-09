@@ -36,10 +36,13 @@ import { writePendingFoodLog } from "@/lib/pending-food-log";
 import { getDisplayName } from "@/lib/profile";
 import {
   greetingForHour,
-  labelForPlan,
   labelForSleepQuality,
   type TodayCheckIn,
 } from "@/lib/today";
+import {
+  buildTodayCoachingSummary,
+} from "@/lib/today-coaching-summary";
+import { statusLabel as planStatusLabel } from "@/lib/training-plan";
 import {
   labelForDuration,
   labelForTrainingType,
@@ -120,26 +123,7 @@ function NutritionSection({
 }
 
 function TrainingSection({ data }: { data: TodayDashboardData }) {
-  const session = data.trainingSession;
-  const plan = data.plannedTraining;
-
-  let statusLine: string;
-  if (session) {
-    statusLine = `✓ ${labelForTrainingType(session.training_type)} completed`;
-    if (session.duration_minutes) {
-      statusLine += ` · ${labelForDuration(session.duration_minutes)}`;
-    }
-  } else if (
-    plan === "strength" ||
-    plan === "hiit" ||
-    plan === "recovery"
-  ) {
-    statusLine = `${labelForPlan(plan)} · planned`;
-  } else if (plan === "rest") {
-    statusLine = "Rest day";
-  } else {
-    statusLine = "No training planned";
-  }
+  const entries = data.todayPlanEntries;
 
   return (
     <section className="today-reveal">
@@ -154,13 +138,40 @@ function TrainingSection({ data }: { data: TodayDashboardData }) {
           Open Train
         </Link>
       </div>
-      <p className="mt-4 text-[17px] leading-7 text-foreground/92">{statusLine}</p>
-      <Link
-        href="/train"
-        className="mt-4 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-      >
-        + Log workout
-      </Link>
+      {entries.length === 0 ? (
+        <p className="mt-3 text-[14px] leading-6 text-muted">
+          No session on the plan today.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {entries.map((entry) => (
+            <li key={entry.id} className="text-[14px] leading-6 text-foreground/92">
+              {entry.training_type === "rest"
+                ? "Rest day"
+                : `${labelForTrainingType(entry.training_type)} · ${entry.title}`}
+              {entry.planned_duration_minutes
+                ? ` · ${labelForDuration(entry.planned_duration_minutes)} planned`
+                : ""}
+              {` · ${planStatusLabel(entry.status)}`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {data.hasIncompletePlannedTraining ? (
+        <Link
+          href="/train"
+          className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+        >
+          Mark workout complete
+        </Link>
+      ) : (
+        <Link
+          href="/train"
+          className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+        >
+          + Log workout
+        </Link>
+      )}
     </section>
   );
 }
@@ -308,9 +319,38 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
       hasCheckIn: data.hasCheckIn,
       plannedTraining: data.plannedTraining,
       loggedMealTypes: data.loggedMealTypes,
-      hasTrainingSession: data.hasTrainingSession,
+      hasTrainingSession:
+        data.hasTrainingSession && !data.hasIncompletePlannedTraining,
     });
   }, [data, now]);
+
+  /** Large meal banners are demoted — Coach's Take + compact inspiration instead. */
+  const heroNextAction =
+    nextAction &&
+    (nextAction.type === "morning_check_in" ||
+      nextAction.type === "training")
+      ? nextAction
+      : null;
+
+  const mealInspirationAction =
+    nextAction &&
+    (nextAction.type === "breakfast" ||
+      nextAction.type === "lunch" ||
+      nextAction.type === "snack" ||
+      nextAction.type === "dinner")
+      ? nextAction
+      : null;
+
+  const coachingSummary = useMemo(() => {
+    if (!data) {
+      return null;
+    }
+    return buildTodayCoachingSummary({
+      planEntries: data.todayPlanEntries,
+      nutrition: data.nutrition,
+      feeling: data.checkIn?.feeling ?? null,
+    });
+  }, [data]);
 
   const detectedHabits: DetectedHabit[] = useMemo(() => {
     if (!data) {
@@ -349,7 +389,8 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
       hasCheckIn: data.hasCheckIn,
       plannedTraining: data.plannedTraining,
       loggedMealTypes: data.loggedMealTypes,
-      hasTrainingSession: data.hasTrainingSession,
+      hasTrainingSession:
+        data.hasTrainingSession && !data.hasIncompletePlannedTraining,
       nutrition: data.nutrition,
       detectedHabits,
     });
@@ -530,18 +571,18 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
     );
   }
 
+  const showHabitMoment =
+    displayCoachMoment?.type === "habit" ? displayCoachMoment : null;
+
   return (
     <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
-      <header className="mb-8">
+      <header className="mb-6">
         <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
           Today
         </p>
         <h1 className="mt-3 font-serif text-[2.15rem] leading-tight tracking-tight sm:text-5xl">
           {greeting}
         </h1>
-        <p className="mt-3 text-[15px] leading-7 text-muted">
-          Here’s what matters next.
-        </p>
       </header>
 
       {loadError ? (
@@ -550,45 +591,126 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
         </p>
       ) : null}
 
-      {nextAction ? (
-        <section className="today-reveal relative mb-10 overflow-hidden rounded-[1.75rem] border border-white/10 bg-gradient-to-br from-white/[0.09] via-white/[0.03] to-transparent px-5 py-6">
-          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-            Your next step
-          </p>
-          <h2 className="mt-3 font-serif text-[1.65rem] leading-tight tracking-tight">
-            {nextAction.title}
+      {data && coachingSummary ? (
+        <section className="today-reveal mb-8">
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+            Coach&apos;s Take
           </h2>
-          <p className="mt-2 text-[14px] leading-6 text-muted">
-            {nextAction.description}
+          <div className="mt-3 space-y-2">
+            {coachingSummary.sentences.map((sentence) => (
+              <p
+                key={sentence}
+                className="font-serif text-[1.25rem] leading-snug tracking-tight text-foreground sm:text-[1.35rem]"
+              >
+                {sentence}
+              </p>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {heroNextAction ? (
+        <section className="today-reveal mb-8 rounded-2xl border border-border/70 px-4 py-4">
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+            Next step
           </p>
-          {nextAction.type === "morning_check_in" ? (
+          <p className="mt-2 text-[15px] leading-6 text-foreground">
+            {heroNextAction.title}
+          </p>
+          {heroNextAction.type === "morning_check_in" ? (
             <button
               type="button"
               onClick={() => setPanel("check-in")}
-              className="mt-5 inline-flex min-h-11 items-center rounded-full border border-white/18 bg-white/10 px-5 text-[14px] text-foreground transition-colors hover:bg-white/14"
+              className="mt-3 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
             >
-              {nextAction.action.label}
+              {heroNextAction.action.label}
             </button>
           ) : (
             <Link
-              href={nextAction.action.href}
-              className="mt-5 inline-flex min-h-11 items-center rounded-full border border-white/18 bg-white/10 px-5 text-[14px] text-foreground transition-colors hover:bg-white/14"
+              href={heroNextAction.action.href}
+              className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
             >
-              {nextAction.action.label}
+              {heroNextAction.action.label}
             </Link>
           )}
         </section>
       ) : null}
 
       {data ? (
-        <div className="flex flex-col gap-11">
+        <div className="flex flex-col gap-9">
           <NutritionSection data={data} now={now} />
           <TrainingSection data={data} />
-          <RecoverySection
-            data={data}
-            onStart={() => setPanel("check-in")}
-            onEdit={() => setPanel("check-in")}
-          />
+
+          <section className="today-reveal">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+                Food
+              </h2>
+              <Link
+                href="/nutrition"
+                className="text-[13px] text-muted transition-colors hover:text-foreground"
+              >
+                Open Nutrition
+              </Link>
+            </div>
+            {data.nutrition &&
+            (data.nutrition.eatenEntries.length > 0 ||
+              data.nutrition.plannedEntries.length > 0) ? (
+              <ul className="mt-3 space-y-1.5">
+                {[
+                  ...data.nutrition.eatenEntries,
+                  ...data.nutrition.plannedEntries,
+                ]
+                  .slice(0, 4)
+                  .map((entry) => (
+                    <li
+                      key={entry.id}
+                      className="text-[13px] leading-5 text-muted"
+                    >
+                      {entryDisplayTitle(entry)}
+                      {entry.status === "planned" ? " · planned" : ""}
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-[14px] text-muted">Nothing logged yet.</p>
+            )}
+            <Link
+              href="/nutrition"
+              className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+            >
+              + Add food
+            </Link>
+          </section>
+
+          {(mealInspirationAction ||
+            displayCoachMoment?.showInspirationCta) && (
+            <section className="today-reveal flex items-center justify-between gap-3 border-t border-border/60 pt-5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+                  Meal ideas
+                </p>
+                <p className="mt-1 text-[13px] text-muted">
+                  {mealInspirationAction
+                    ? `Ideas for ${mealInspirationAction.type}`
+                    : "Ask Coach for inspiration"}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={inspirationPending}
+                onClick={handleNeedInspiration}
+                className="shrink-0 text-[13px] text-foreground/90 underline-offset-4 hover:underline disabled:opacity-60"
+              >
+                {inspirationPending ? "Opening…" : "Need inspiration"}
+              </button>
+            </section>
+          )}
+          {inspirationError ? (
+            <p role="alert" className="text-[13px] text-muted">
+              {inspirationError}
+            </p>
+          ) : null}
 
           {habitAck ? (
             <p className="today-reveal text-[14px] leading-6 text-muted">
@@ -596,103 +718,51 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
             </p>
           ) : null}
 
-          {displayCoachMoment ? (
+          {showHabitMoment ? (
             <section className="today-reveal">
               <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-                Coach
+                Habit
               </h2>
-              <p className="mt-4 font-serif text-[1.45rem] leading-snug tracking-tight text-foreground">
-                {displayCoachMoment.title}
+              <p className="mt-2 text-[15px] leading-6 text-foreground">
+                {showHabitMoment.title}
               </p>
-              {displayCoachMoment.description ? (
-                <p className="mt-2 text-[14px] leading-6 text-muted">
-                  {displayCoachMoment.description}
-                </p>
-              ) : null}
-
-              {displayCoachMoment.type === "habit" ? (
-                <div className="mt-4 flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      disabled={habitPending}
-                      onClick={() => handleHabitYes(displayCoachMoment)}
-                      className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
-                    >
-                      Yes — log it
-                    </button>
-                    <button
-                      type="button"
-                      disabled={habitPending}
-                      onClick={() => handleHabitNo(displayCoachMoment)}
-                      className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground disabled:opacity-60"
-                    >
-                      Not today
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={habitPending}
-                    onClick={() => handleHabitStopped(displayCoachMoment)}
-                    className="w-fit text-[12px] text-muted transition-colors hover:text-foreground disabled:opacity-60"
-                  >
-                    I don’t have this habit anymore
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {displayCoachMoment.type === "morning_check_in" ? (
-                    <button
-                      type="button"
-                      onClick={() => setPanel("check-in")}
-                      className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-                    >
-                      Start check-in
-                    </button>
-                  ) : null}
-                  {displayCoachMoment.type === "breakfast" ||
-                  displayCoachMoment.type === "lunch" ||
-                  displayCoachMoment.type === "snack" ||
-                  displayCoachMoment.type === "dinner" ? (
-                    <Link
-                      href={`/nutrition?meal=${displayCoachMoment.type}`}
-                      className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-                    >
-                      Log {displayCoachMoment.type}
-                    </Link>
-                  ) : null}
-                  {displayCoachMoment.showInspirationCta ? (
-                    <button
-                      type="button"
-                      disabled={inspirationPending}
-                      onClick={handleNeedInspiration}
-                      className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
-                    >
-                      {inspirationPending ? "Opening…" : "Need inspiration"}
-                    </button>
-                  ) : (
-                    <Link
-                      href="/coach"
-                      className="text-[13px] text-muted transition-colors hover:text-foreground"
-                    >
-                      Ask Coach
-                    </Link>
-                  )}
-                </div>
-              )}
-              {inspirationError ? (
-                <p role="alert" className="mt-3 text-[13px] text-muted">
-                  {inspirationError}
-                </p>
-              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={habitPending}
+                  onClick={() => handleHabitYes(showHabitMoment)}
+                  className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
+                >
+                  Yes — log it
+                </button>
+                <button
+                  type="button"
+                  disabled={habitPending}
+                  onClick={() => handleHabitNo(showHabitMoment)}
+                  className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground disabled:opacity-60"
+                >
+                  Not today
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={habitPending}
+                onClick={() => handleHabitStopped(showHabitMoment)}
+                className="mt-2 w-fit text-[12px] text-muted transition-colors hover:text-foreground disabled:opacity-60"
+              >
+                I don’t have this habit anymore
+              </button>
             </section>
           ) : null}
 
-          <section className="today-reveal border-t border-border/70 pt-8">
-            <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-              Quick actions
-            </h2>
-            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-3 text-[14px]">
+          <RecoverySection
+            data={data}
+            onStart={() => setPanel("check-in")}
+            onEdit={() => setPanel("check-in")}
+          />
+
+          <section className="today-reveal border-t border-border/70 pt-6">
+            <div className="flex flex-wrap gap-x-5 gap-y-3 text-[14px]">
               <Link
                 href="/nutrition"
                 className="text-foreground/90 underline-offset-4 hover:underline"
