@@ -59,12 +59,54 @@ function endOfWeekSunday(localDate) {
   return addDays(startOfWeekMonday(localDate), 6);
 }
 
+function shiftWeek(localDate, weeks) {
+  return addDays(startOfWeekMonday(localDate), weeks * 7);
+}
+
+function isSameWeek(a, b) {
+  return startOfWeekMonday(a) === startOfWeekMonday(b);
+}
+
+function weekRelationToToday(localDate, today) {
+  const week = startOfWeekMonday(localDate);
+  const current = startOfWeekMonday(today);
+  if (week < current) return "past";
+  if (week > current) return "future";
+  return "current";
+}
+
+function formatWeekRangeLabel(weekStartOrDate) {
+  const weekStart = startOfWeekMonday(weekStartOrDate);
+  const weekEnd = addDays(weekStart, 6);
+  const start = parseLocalDate(weekStart);
+  const end = parseLocalDate(weekEnd);
+  const monthYear = new Intl.DateTimeFormat("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+  const monthDay = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+  });
+  if (
+    start.getMonth() === end.getMonth() &&
+    start.getFullYear() === end.getFullYear()
+  ) {
+    return `${start.getDate()}–${end.getDate()} ${monthYear.format(end)}`;
+  }
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${monthDay.format(start)} – ${end.getDate()} ${monthYear.format(end)}`;
+  }
+  return `${monthDay.format(start)} ${start.getFullYear()} – ${monthDay.format(end)} ${end.getFullYear()}`;
+}
+
 function isTrainingSessionType(type) {
   return type !== "rest";
 }
 
 function buildWeeklyTrainingProgress({
   localDate,
+  today,
   target,
   planEntries,
   sessions,
@@ -100,10 +142,11 @@ function buildWeeklyTrainingProgress({
 
   const completedSessions = completedPlannedSessions + unplannedSessions;
   const resolvedTarget = Math.max(1, Math.round(target));
-  const fillPercent = Math.min(
-    100,
-    Math.round((completedPlannedSessions / resolvedTarget) * 100),
-  );
+  const relation = weekRelationToToday(localDate, today ?? localDate);
+  const fillPercent =
+    relation === "future"
+      ? 0
+      : Math.min(100, Math.round((completedPlannedSessions / resolvedTarget) * 100));
 
   return {
     weekStart,
@@ -115,7 +158,8 @@ function buildWeeklyTrainingProgress({
     restDays,
     target: resolvedTarget,
     fillPercent,
-    achieved: completedPlannedSessions >= resolvedTarget,
+    achieved:
+      relation === "future" ? false : completedPlannedSessions >= resolvedTarget,
   };
 }
 
@@ -236,6 +280,23 @@ assert("calories reject huge", parseCaloriesBurned(6000) === null);
 assert("week start Mon for Wed", startOfWeekMonday("2026-10-07") === "2026-10-05");
 assert("week end Sun", endOfWeekSunday("2026-10-07") === "2026-10-11");
 assert("Sunday belongs to prior Mon week", startOfWeekMonday("2026-10-11") === "2026-10-05");
+assert("prev week across month", shiftWeek("2026-10-05", -1) === "2026-09-28");
+assert("next week across month", shiftWeek("2026-09-28", 1) === "2026-10-05");
+assert("next week year boundary", shiftWeek("2026-12-28", 1) === "2027-01-04");
+assert("same week Wed/Sun", isSameWeek("2026-10-07", "2026-10-11"));
+assert("different weeks", !isSameWeek("2026-10-05", "2026-10-12"));
+assert("relation current", weekRelationToToday("2026-10-07", "2026-10-09") === "current");
+assert("relation past", weekRelationToToday("2026-09-28", "2026-10-09") === "past");
+assert("relation future", weekRelationToToday("2026-10-12", "2026-10-09") === "future");
+assert(
+  "week range same month",
+  formatWeekRangeLabel("2026-10-05") === "5–11 October 2026",
+);
+assert(
+  "week range spans months",
+  formatWeekRangeLabel("2026-09-28").includes("September") &&
+    formatWeekRangeLabel("2026-09-28").includes("October"),
+);
 
 assert("freq 2-3 → 3", resolveWeeklySessionTarget(null, "2-3") === 3);
 assert("freq 4-5 → 4", resolveWeeklySessionTarget(null, "4-5") === 4);
@@ -277,6 +338,7 @@ const weekSessions = [
 
 const progress = buildWeeklyTrainingProgress({
   localDate: "2026-10-07",
+  today: "2026-10-09",
   target: 3,
   planEntries: weekPlans,
   sessions: weekSessions,
@@ -288,6 +350,26 @@ assert("completed planned = 1", progress.completedPlannedSessions === 1);
 assert("unplanned counted separately", progress.unplannedSessions === 2);
 assert("fill percent vs target 3", progress.fillPercent === 33);
 assert("not yet achieved", progress.achieved === false);
+
+const futureProgress = buildWeeklyTrainingProgress({
+  localDate: "2026-10-19",
+  today: "2026-10-09",
+  target: 3,
+  planEntries: [
+    {
+      id: "f1",
+      plan_date: "2026-10-20",
+      training_type: "strength",
+      status: "planned",
+      training_session_id: null,
+      planned_duration_minutes: 45,
+    },
+  ],
+  sessions: [],
+});
+assert("future week plans count", futureProgress.plannedSessions === 1);
+assert("future week fill stays 0", futureProgress.fillPercent === 0);
+assert("future week not achieved", futureProgress.achieved === false);
 
 const afterComplete = buildWeeklyTrainingProgress({
   localDate: "2026-10-07",

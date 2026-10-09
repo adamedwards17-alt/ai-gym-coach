@@ -13,7 +13,7 @@ import {
   skipTrainingPlanEntry,
 } from "@/app/actions/training";
 import { PlanProposalCard } from "@/components/train/PlanProposalCard";
-import { TrainingLogExperience } from "@/components/train/TrainingLogExperience";
+import { WorkoutLogSheet } from "@/components/train/WorkoutLogSheet";
 import { CompactProgressBar } from "@/components/ui/CompactProgressBar";
 import { buildStepProgress } from "@/lib/activity-steps";
 import {
@@ -27,7 +27,12 @@ import {
   buildWeekDays,
   buildWeeklyTrainingProgress,
   entriesForDate,
+  formatWeekRangeLabel,
+  isSameWeek,
+  shiftWeek,
+  startOfWeekMonday,
   todayPlanStatus,
+  weekRelationToToday,
 } from "@/lib/training-week";
 import {
   getLocalSessionDate,
@@ -37,19 +42,10 @@ import {
   type PlanTrainingTypeId,
   type TrainingPlanEntryRecord,
   type TrainingSessionRecord,
-  type TrainingTypeId,
 } from "@/lib/training";
 
 type HubMode =
   | { kind: "hub" }
-  | {
-      kind: "log";
-      planEntryId?: string | null;
-      seedType?: TrainingTypeId | null;
-      seedTitle?: string | null;
-      seedDuration?: number | null;
-      plannedDuration?: number | null;
-    }
   | { kind: "plan"; date: string; entry?: TrainingPlanEntryRecord | null }
   | { kind: "skip"; entry: TrainingPlanEntryRecord }
   | {
@@ -58,12 +54,21 @@ type HubMode =
       session: TrainingSessionRecord;
     };
 
+type LogSheetState = {
+  plan: TrainingPlanEntryRecord | null;
+  session: TrainingSessionRecord | null;
+};
+
 export function TrainingHubExperience() {
   const router = useRouter();
   const [data, setData] = useState<TrainingHubData | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mode, setMode] = useState<HubMode>({ kind: "hub" });
+  const [logSheet, setLogSheet] = useState<LogSheetState | null>(null);
+  const [selectedWeekDate, setSelectedWeekDate] = useState(() =>
+    getLocalSessionDate(),
+  );
   const [stepsDraft, setStepsDraft] = useState("");
   const [stepTargetDraft, setStepTargetDraft] = useState("");
   const [weekTargetDraft, setWeekTargetDraft] = useState("");
@@ -73,38 +78,50 @@ export function TrainingHubExperience() {
   const [editingWeekTarget, setEditingWeekTarget] = useState(false);
 
   const today = getLocalSessionDate();
+  const weekRelation = weekRelationToToday(selectedWeekDate, today);
+  const viewingCurrentWeek = weekRelation === "current";
 
-  const refresh = useCallback(async () => {
-    const result = await loadTrainingHub(getLocalSessionDate());
-    if (result.status === "ok") {
-      setData(result.data);
-      setLoadError(null);
-      setStepsDraft(
-        result.data.todaySteps ? String(result.data.todaySteps.steps) : "",
-      );
-      setStepTargetDraft(String(result.data.dailyStepTarget));
-      setWeekTargetDraft(String(result.data.weeklySessionTarget));
-    } else {
-      setLoadError(result.message);
-    }
-    setReady(true);
+  const applyHubData = useCallback((hub: TrainingHubData) => {
+    setData(hub);
+    setLoadError(null);
+    setStepsDraft(hub.todaySteps ? String(hub.todaySteps.steps) : "");
+    setStepTargetDraft(String(hub.dailyStepTarget));
+    setWeekTargetDraft(String(hub.weeklySessionTarget));
   }, []);
+
+  /** Load key: today when viewing the current week so steps/today slots stay accurate. */
+  const weekLoadDate = useMemo(() => {
+    return isSameWeek(selectedWeekDate, today)
+      ? today
+      : startOfWeekMonday(selectedWeekDate);
+  }, [selectedWeekDate, today]);
+
+  const refresh = useCallback(
+    async (weekDate: string = selectedWeekDate) => {
+      const loadDate = isSameWeek(weekDate, getLocalSessionDate())
+        ? getLocalSessionDate()
+        : startOfWeekMonday(weekDate);
+      const result = await loadTrainingHub(loadDate);
+      if (result.status === "ok") {
+        applyHubData(result.data);
+      } else {
+        setLoadError(result.message);
+      }
+      setReady(true);
+    },
+    [applyHubData, selectedWeekDate],
+  );
 
   useEffect(() => {
     let cancelled = false;
+    const loadDate = weekLoadDate;
 
-    void loadTrainingHub(getLocalSessionDate()).then((result) => {
+    void loadTrainingHub(loadDate).then((result) => {
       if (cancelled) {
         return;
       }
       if (result.status === "ok") {
-        setData(result.data);
-        setLoadError(null);
-        setStepsDraft(
-          result.data.todaySteps ? String(result.data.todaySteps.steps) : "",
-        );
-        setStepTargetDraft(String(result.data.dailyStepTarget));
-        setWeekTargetDraft(String(result.data.weeklySessionTarget));
+        applyHubData(result.data);
       } else {
         setLoadError(result.message);
       }
@@ -114,11 +131,14 @@ export function TrainingHubExperience() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [weekLoadDate, applyHubData]);
 
   const weekDays = useMemo(
-    () => (data ? buildWeekDays({ localDate: data.localDate, today }) : []),
-    [data, today],
+    () =>
+      data
+        ? buildWeekDays({ localDate: data.localDate, today })
+        : buildWeekDays({ localDate: selectedWeekDate, today }),
+    [data, selectedWeekDate, today],
   );
 
   const weekProgress = useMemo(() => {
@@ -127,23 +147,52 @@ export function TrainingHubExperience() {
     }
     return buildWeeklyTrainingProgress({
       localDate: data.localDate,
+      today,
       target: data.weeklySessionTarget,
       planEntries: data.weekPlan,
       sessions: data.weekSessions,
     });
-  }, [data]);
+  }, [data, today]);
 
   const stepProgress = useMemo(() => {
-    if (!data) {
+    if (!data || !viewingCurrentWeek) {
       return null;
     }
     return buildStepProgress({
       steps: data.todaySteps?.steps ?? null,
       target: data.dailyStepTarget,
     });
-  }, [data]);
+  }, [data, viewingCurrentWeek]);
 
-  const todayPlans = data?.todayPlans ?? [];
+  const todayPlans = useMemo(() => {
+    if (!data || !viewingCurrentWeek) {
+      return [];
+    }
+    return entriesForDate(data.weekPlan, today);
+  }, [data, viewingCurrentWeek, today]);
+
+  function goToWeek(nextWeekDate: string) {
+    setSelectedWeekDate(startOfWeekMonday(nextWeekDate));
+    setMode({ kind: "hub" });
+    setActionError(null);
+  }
+
+  function findLinkedSession(
+    plan: TrainingPlanEntryRecord,
+  ): TrainingSessionRecord | null {
+    if (!data || !plan.training_session_id) {
+      return null;
+    }
+    return (
+      data.weekSessions.find(
+        (session) => session.id === plan.training_session_id,
+      ) ??
+      data.recentSessions.find(
+        (session) => session.id === plan.training_session_id,
+      ) ??
+      null
+    );
+  }
 
   async function handleSaveSteps() {
     setSavingSteps(true);
@@ -187,51 +236,19 @@ export function TrainingHubExperience() {
   }
 
   function openComplete(plan: TrainingPlanEntryRecord) {
-    setMode({
-      kind: "log",
-      planEntryId: plan.id,
-      seedType:
-        plan.training_type === "rest"
-          ? null
-          : (plan.training_type as TrainingTypeId),
-      seedTitle: plan.title,
-      seedDuration: null,
-      plannedDuration: plan.planned_duration_minutes,
+    setLogSheet({
+      plan,
+      session: findLinkedSession(plan),
     });
+  }
+
+  function openUnplannedLog() {
+    setLogSheet({ plan: null, session: null });
   }
 
   if (!ready) {
     return (
       <p className="px-5 py-16 text-center text-[13px] text-muted">Loading…</p>
-    );
-  }
-
-  if (mode.kind === "log") {
-    return (
-      <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
-        <button
-          type="button"
-          className="mb-5 text-[13px] text-muted transition-colors hover:text-foreground"
-          onClick={() => {
-            setMode({ kind: "hub" });
-            void refresh();
-          }}
-        >
-          ← Back to Train
-        </button>
-        <TrainingLogExperience
-          embedded
-          planEntryId={mode.planEntryId ?? null}
-          initialType={mode.seedType ?? null}
-          initialTitle={mode.seedTitle ?? null}
-          initialDurationMinutes={mode.seedDuration ?? null}
-          plannedDurationMinutes={mode.plannedDuration ?? null}
-          onSaved={() => {
-            setMode({ kind: "hub" });
-            void refresh();
-          }}
-        />
-      </div>
     );
   }
 
@@ -244,7 +261,7 @@ export function TrainingHubExperience() {
           onCancel={() => setMode({ kind: "hub" })}
           onSaved={() => {
             setMode({ kind: "hub" });
-            void refresh();
+            void refresh(selectedWeekDate);
           }}
         />
       </div>
@@ -320,16 +337,73 @@ export function TrainingHubExperience() {
     );
   }
 
+  const weekLabel = formatWeekRangeLabel(selectedWeekDate);
+
   return (
     <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
-      <header className="mb-8">
+      {logSheet ? (
+        <WorkoutLogSheet
+          plan={logSheet.plan}
+          session={logSheet.session}
+          onCancel={() => setLogSheet(null)}
+          onSaved={() => {
+            setLogSheet(null);
+            void refresh(selectedWeekDate);
+          }}
+        />
+      ) : null}
+
+      <header className="mb-6">
         <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
           Train
         </p>
         <h1 className="mt-2 font-serif text-[1.85rem] leading-tight tracking-tight sm:text-4xl">
-          This week
+          Training plan
         </h1>
       </header>
+
+      <nav
+        aria-label="Week navigation"
+        className="mb-8 flex flex-col gap-3"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            className="shrink-0 text-[13px] text-muted transition-colors hover:text-foreground"
+            onClick={() => goToWeek(shiftWeek(selectedWeekDate, -1))}
+          >
+            ← Prev
+          </button>
+          <div className="min-w-0 text-center">
+            <p className="truncate text-[14px] font-medium text-foreground">
+              {weekLabel}
+            </p>
+            <p className="mt-0.5 text-[11px] uppercase tracking-[0.14em] text-muted">
+              {weekRelation === "current"
+                ? "This week"
+                : weekRelation === "future"
+                  ? "Upcoming"
+                  : "Past week"}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-[13px] text-muted transition-colors hover:text-foreground"
+            onClick={() => goToWeek(shiftWeek(selectedWeekDate, 1))}
+          >
+            Next →
+          </button>
+        </div>
+        {!isSameWeek(selectedWeekDate, today) ? (
+          <button
+            type="button"
+            className="self-center text-[13px] text-foreground/90 underline-offset-4 hover:underline"
+            onClick={() => goToWeek(today)}
+          >
+            This week
+          </button>
+        ) : null}
+      </nav>
 
       {loadError ? (
         <p role="alert" className="mb-4 text-[13px] text-muted">
@@ -342,112 +416,140 @@ export function TrainingHubExperience() {
         </p>
       ) : null}
 
-      {data && data.pendingProposals.length > 0 ? (
+      {viewingCurrentWeek && data && data.pendingProposals.length > 0 ? (
         <section className="mb-8 space-y-3">
           {data.pendingProposals.map((proposal) => (
             <PlanProposalCard
               key={proposal.id}
               proposal={proposal}
-              onResolved={() => void refresh()}
+              onResolved={() => void refresh(selectedWeekDate)}
             />
           ))}
         </section>
       ) : null}
 
-      {/* 1. Today's workout */}
-      <section className="mb-10">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Today&apos;s workout
-        </h2>
+      {/* 1. Today's workout — current week only */}
+      {viewingCurrentWeek ? (
+        <section className="mb-10">
+          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+            Today&apos;s workout
+          </h2>
 
-        {todayPlans.length === 0 ? (
-          <div className="mt-4">
-            <p className="font-serif text-[1.55rem] tracking-tight">
-              Nothing planned
-            </p>
-            <p className="mt-2 text-[14px] leading-6 text-muted">
-              Add a session for today, or log what you already did.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
-                onClick={() => setMode({ kind: "plan", date: today })}
-              >
-                Add session
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
-                onClick={() => setMode({ kind: "log" })}
-              >
-                Log workout
-              </button>
+          {todayPlans.length === 0 ? (
+            <div className="mt-4">
+              <p className="font-serif text-[1.55rem] tracking-tight">
+                Nothing planned
+              </p>
+              <p className="mt-2 text-[14px] leading-6 text-muted">
+                Add a session for today, or log what you already did.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                  onClick={() => setMode({ kind: "plan", date: today })}
+                >
+                  Add session
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                  onClick={openUnplannedLog}
+                >
+                  Log workout
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <ul className="mt-4 space-y-6">
-            {todayPlans.map((plan) => {
-              const status = todayPlanStatus({
-                plan,
-                hasSessionToday: false,
-              });
-              const linked =
-                plan.training_session_id && data
-                  ? (data.weekSessions.find(
-                      (session) => session.id === plan.training_session_id,
-                    ) ??
-                    data.recentSessions.find(
-                      (session) => session.id === plan.training_session_id,
-                    ) ??
-                    null)
-                  : null;
+          ) : (
+            <ul className="mt-4 space-y-6">
+              {todayPlans.map((plan) => {
+                const status = todayPlanStatus({
+                  plan,
+                  hasSessionToday: false,
+                });
+                const linked = findLinkedSession(plan);
 
-              return (
-                <li key={plan.id}>
-                  {status === "rest" ? (
-                    <>
-                      <p className="font-serif text-[1.45rem] tracking-tight">
-                        Rest day
-                      </p>
-                      <p className="mt-2 text-[14px] leading-6 text-muted">
-                        Recovery counts.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-serif text-[1.45rem] tracking-tight">
-                        {plan.title}
-                      </p>
-                      <p className="mt-2 text-[14px] leading-6 text-muted">
-                        {labelForTrainingType(plan.training_type)}
-                        {plan.focus ? ` · ${plan.focus}` : ""}
-                        {plan.planned_duration_minutes
-                          ? ` · Planned ${labelForDuration(plan.planned_duration_minutes)}`
-                          : ""}
-                        {` · ${statusLabel(plan.status)}`}
-                      </p>
-                      {status === "completed" && linked ? (
-                        <p className="mt-1 text-[13px] text-muted">
-                          Actual{" "}
-                          {linked.duration_minutes
-                            ? labelForDuration(linked.duration_minutes)
-                            : "duration unknown"}
-                          {linked.intensity
-                            ? ` · ${linked.intensity.replace(/_/g, " ")}`
-                            : ""}
+                return (
+                  <li key={plan.id}>
+                    {status === "rest" ? (
+                      <>
+                        <p className="font-serif text-[1.45rem] tracking-tight">
+                          Rest day
                         </p>
-                      ) : null}
-                      <div className="mt-4 flex flex-wrap gap-3">
-                        {status === "planned" ? (
-                          <>
+                        <p className="mt-2 text-[14px] leading-6 text-muted">
+                          Recovery counts.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-serif text-[1.45rem] tracking-tight">
+                          {plan.title}
+                        </p>
+                        <p className="mt-2 text-[14px] leading-6 text-muted">
+                          {labelForTrainingType(plan.training_type)}
+                          {plan.focus ? ` · ${plan.focus}` : ""}
+                          {plan.planned_duration_minutes
+                            ? ` · Planned ${labelForDuration(plan.planned_duration_minutes)}`
+                            : ""}
+                          {` · ${statusLabel(plan.status)}`}
+                        </p>
+                        {status === "completed" && linked ? (
+                          <p className="mt-1 text-[13px] text-muted">
+                            Actual{" "}
+                            {linked.duration_minutes
+                              ? labelForDuration(linked.duration_minutes)
+                              : "duration unknown"}
+                            {linked.intensity
+                              ? ` · ${linked.intensity.replace(/_/g, " ")}`
+                              : ""}
+                          </p>
+                        ) : null}
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          {status === "planned" ? (
+                            <>
+                              <button
+                                type="button"
+                                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                                onClick={() => openComplete(plan)}
+                              >
+                                Mark as complete
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                                onClick={() =>
+                                  setMode({ kind: "skip", entry: plan })
+                                }
+                              >
+                                Skip workout
+                              </button>
+                            </>
+                          ) : null}
+                          {status === "completed" && linked ? (
                             <button
                               type="button"
-                              className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                              className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                              onClick={() =>
+                                setMode({
+                                  kind: "compare",
+                                  plan,
+                                  session: linked,
+                                })
+                              }
+                            >
+                              View comparison
+                            </button>
+                          ) : null}
+                          {status === "completed" ? (
+                            <button
+                              type="button"
+                              className="text-[13px] text-muted transition-colors hover:text-foreground"
                               onClick={() => openComplete(plan)}
                             >
-                              Mark as complete
+                              Edit session
                             </button>
+                          ) : null}
+                          {status === "skipped" ? (
                             <button
                               type="button"
                               className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
@@ -455,94 +557,64 @@ export function TrainingHubExperience() {
                                 setMode({ kind: "skip", entry: plan })
                               }
                             >
-                              Skip workout
+                              Talk to Coach
                             </button>
-                          </>
-                        ) : null}
-                        {status === "completed" && linked ? (
-                          <button
-                            type="button"
-                            className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
-                            onClick={() =>
-                              setMode({
-                                kind: "compare",
-                                plan,
-                                session: linked,
-                              })
-                            }
-                          >
-                            View comparison
-                          </button>
-                        ) : null}
-                        {status === "completed" ? (
+                          ) : null}
                           <button
                             type="button"
                             className="text-[13px] text-muted transition-colors hover:text-foreground"
-                            onClick={() => openComplete(plan)}
-                          >
-                            Edit session
-                          </button>
-                        ) : null}
-                        {status === "skipped" ? (
-                          <button
-                            type="button"
-                            className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
                             onClick={() =>
-                              setMode({ kind: "skip", entry: plan })
+                              setMode({
+                                kind: "plan",
+                                date: plan.plan_date,
+                                entry: plan,
+                              })
                             }
                           >
-                            Talk to Coach
+                            Edit plan
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="text-[13px] text-muted transition-colors hover:text-foreground"
-                          onClick={() =>
-                            setMode({
-                              kind: "plan",
-                              date: plan.plan_date,
-                              entry: plan,
-                            })
-                          }
-                        >
-                          Edit plan
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </li>
-              );
-            })}
-            <li>
-              <button
-                type="button"
-                className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-                onClick={() => setMode({ kind: "log" })}
-              >
-                + Log an unplanned workout
-              </button>
-            </li>
-          </ul>
-        )}
-      </section>
+                        </div>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+              <li>
+                <button
+                  type="button"
+                  className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                  onClick={openUnplannedLog}
+                >
+                  + Log an unplanned workout
+                </button>
+              </li>
+            </ul>
+          )}
+        </section>
+      ) : null}
 
-      {/* 2. Weekly progress */}
+      {/* 2. Weekly progress — scoped to selected week */}
       {weekProgress ? (
         <section className="mb-10">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-              Weekly progress
+              {weekRelation === "future"
+                ? "Week overview"
+                : "Weekly progress"}
             </h2>
-            <button
-              type="button"
-              className="text-[12px] text-muted transition-colors hover:text-foreground"
-              onClick={() => setEditingWeekTarget((value) => !value)}
-            >
-              {editingWeekTarget ? "Cancel" : "Edit target"}
-            </button>
+            {viewingCurrentWeek ? (
+              <button
+                type="button"
+                className="text-[12px] text-muted transition-colors hover:text-foreground"
+                onClick={() => setEditingWeekTarget((value) => !value)}
+              >
+                {editingWeekTarget ? "Cancel" : "Edit target"}
+              </button>
+            ) : null}
           </div>
+          <p className="mt-1 text-[12px] text-muted">{weekLabel}</p>
 
-          {editingWeekTarget ? (
+          {editingWeekTarget && viewingCurrentWeek ? (
             <div className="mt-4 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1.5">
                 <span className="text-[12px] text-muted">Sessions / week</span>
@@ -564,22 +636,37 @@ export function TrainingHubExperience() {
           ) : null}
 
           <div className="mt-4">
-            <CompactProgressBar
-              label="Planned sessions"
-              valueText={`${weekProgress.completedPlannedSessions} / ${weekProgress.target}`}
-              fillPercent={weekProgress.fillPercent}
-              tone={weekProgress.achieved ? "achieved" : "normal"}
-              statusLabel={`${weekProgress.plannedSessions} planned · ${weekProgress.completedPlannedSessions} completed${
-                weekProgress.skippedSessions
-                  ? ` · ${weekProgress.skippedSessions} skipped`
-                  : ""
-              }${
-                weekProgress.completedDurationMinutes
-                  ? ` · ${weekProgress.completedDurationMinutes} min trained`
-                  : ""
-              }`}
-            />
-            {weekProgress.unplannedSessions > 0 ? (
+            {weekRelation === "future" ? (
+              <div className="rounded-2xl border border-border/70 px-4 py-3">
+                <p className="text-[14px] text-foreground">
+                  {weekProgress.plannedSessions} session
+                  {weekProgress.plannedSessions === 1 ? "" : "s"} planned
+                  {weekProgress.restDays
+                    ? ` · ${weekProgress.restDays} rest`
+                    : ""}
+                </p>
+                <p className="mt-1 text-[12px] text-muted">
+                  Completion tracking starts once this week begins.
+                </p>
+              </div>
+            ) : (
+              <CompactProgressBar
+                label="Planned sessions"
+                valueText={`${weekProgress.completedPlannedSessions} / ${weekProgress.target}`}
+                fillPercent={weekProgress.fillPercent}
+                tone={weekProgress.achieved ? "achieved" : "normal"}
+                statusLabel={`${weekProgress.plannedSessions} planned · ${weekProgress.completedPlannedSessions} completed${
+                  weekProgress.skippedSessions
+                    ? ` · ${weekProgress.skippedSessions} skipped`
+                    : ""
+                }${
+                  weekProgress.completedDurationMinutes
+                    ? ` · ${weekProgress.completedDurationMinutes} min trained`
+                    : ""
+                }`}
+              />
+            )}
+            {weekRelation !== "future" && weekProgress.unplannedSessions > 0 ? (
               <p className="mt-3 text-[12px] text-muted">
                 +{weekProgress.unplannedSessions} unplanned session
                 {weekProgress.unplannedSessions === 1 ? "" : "s"} this week
@@ -592,7 +679,7 @@ export function TrainingHubExperience() {
       {/* 3. Weekly plan */}
       <section className="mb-10">
         <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Weekly plan
+          {weekRelation === "future" ? "Plan ahead" : "Weekly plan"}
         </h2>
         <ul className="mt-4 divide-y divide-border/60">
           {weekDays.map((day) => {
@@ -622,36 +709,66 @@ export function TrainingHubExperience() {
                   <p className="mt-1 text-[13px] text-muted">Unplanned</p>
                 ) : (
                   <ul className="mt-2 space-y-2">
-                    {entries.map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex items-start justify-between gap-3"
-                      >
-                        <p className="text-[13px] leading-5 text-muted">
-                          {entry.training_type === "rest"
-                            ? "Rest"
-                            : `${labelForTrainingType(entry.training_type)} · ${entry.title}`}
-                          {entry.focus ? ` · ${entry.focus}` : ""}
-                          {entry.planned_duration_minutes
-                            ? ` · ${labelForDuration(entry.planned_duration_minutes)}`
-                            : ""}
-                          {` · ${statusLabel(entry.status)}`}
-                        </p>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[12px] text-muted transition-colors hover:text-foreground"
-                          onClick={() =>
-                            setMode({
-                              kind: "plan",
-                              date: day.date,
-                              entry,
-                            })
-                          }
-                        >
-                          Edit
-                        </button>
-                      </li>
-                    ))}
+                    {entries.map((entry) => {
+                      const linked = findLinkedSession(entry);
+                      return (
+                        <li key={entry.id} className="space-y-1.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-[13px] leading-5 text-muted">
+                              {entry.training_type === "rest"
+                                ? "Rest"
+                                : `${labelForTrainingType(entry.training_type)} · ${entry.title}`}
+                              {entry.focus ? ` · ${entry.focus}` : ""}
+                              {entry.planned_duration_minutes
+                                ? ` · ${labelForDuration(entry.planned_duration_minutes)}`
+                                : ""}
+                              {weekRelation !== "future"
+                                ? ` · ${statusLabel(entry.status)}`
+                                : ""}
+                            </p>
+                            <button
+                              type="button"
+                              className="shrink-0 text-[12px] text-muted transition-colors hover:text-foreground"
+                              onClick={() =>
+                                setMode({
+                                  kind: "plan",
+                                  date: day.date,
+                                  entry,
+                                })
+                              }
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          {weekRelation !== "future" &&
+                          entry.training_type !== "rest" &&
+                          entry.status === "planned" ? (
+                            <button
+                              type="button"
+                              className="text-[12px] text-foreground/90 underline-offset-2 hover:underline"
+                              onClick={() => openComplete(entry)}
+                            >
+                              Mark as complete
+                            </button>
+                          ) : null}
+                          {entry.status === "completed" && linked ? (
+                            <button
+                              type="button"
+                              className="text-[12px] text-muted underline-offset-2 hover:underline"
+                              onClick={() =>
+                                setMode({
+                                  kind: "compare",
+                                  plan: entry,
+                                  session: linked,
+                                })
+                              }
+                            >
+                              Planned vs actual
+                            </button>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </li>
@@ -660,90 +777,92 @@ export function TrainingHubExperience() {
         </ul>
       </section>
 
-      {/* 4. Steps */}
-      <section className="mb-10">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-            Steps
-          </h2>
-          <button
-            type="button"
-            className="text-[12px] text-muted transition-colors hover:text-foreground"
-            onClick={() => setEditingStepsTarget((value) => !value)}
-          >
-            {editingStepsTarget ? "Cancel" : "Edit target"}
-          </button>
-        </div>
-        <p className="mt-2 text-[12px] text-muted">
-          Manual entry — not imported from Apple Health.
-        </p>
-
-        {editingStepsTarget ? (
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] text-muted">Daily target</span>
-              <input
-                inputMode="numeric"
-                value={stepTargetDraft}
-                onChange={(event) => setStepTargetDraft(event.target.value)}
-                className="h-11 w-36 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
-              />
-            </label>
+      {/* 4. Steps — current week only */}
+      {viewingCurrentWeek ? (
+        <section className="mb-10">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+              Steps
+            </h2>
             <button
               type="button"
-              className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
-              onClick={() => void handleSaveStepTarget()}
+              className="text-[12px] text-muted transition-colors hover:text-foreground"
+              onClick={() => setEditingStepsTarget((value) => !value)}
             >
-              Save target
+              {editingStepsTarget ? "Cancel" : "Edit target"}
             </button>
           </div>
-        ) : null}
+          <p className="mt-2 text-[12px] text-muted">
+            Manual entry — not imported from Apple Health.
+          </p>
 
-        {stepProgress ? (
-          <div className="mt-4">
-            <CompactProgressBar
-              label="Today"
-              valueText={
-                stepProgress.hasEntry
-                  ? `${stepProgress.steps?.toLocaleString()} / ${stepProgress.target.toLocaleString()}`
-                  : `— / ${stepProgress.target.toLocaleString()}`
-              }
-              fillPercent={stepProgress.fillPercent}
-              tone={stepProgress.achieved ? "achieved" : "normal"}
-              statusLabel={
-                !stepProgress.hasEntry
-                  ? "No steps logged yet today"
-                  : stepProgress.achieved
-                    ? "Target achieved"
-                    : `${stepProgress.remaining.toLocaleString()} remaining`
-              }
-            />
+          {editingStepsTarget ? (
             <div className="mt-4 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] text-muted">Update steps</span>
+                <span className="text-[12px] text-muted">Daily target</span>
                 <input
                   inputMode="numeric"
-                  value={stepsDraft}
-                  placeholder="e.g. 7420"
-                  onChange={(event) => setStepsDraft(event.target.value)}
+                  value={stepTargetDraft}
+                  onChange={(event) => setStepTargetDraft(event.target.value)}
                   className="h-11 w-36 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
                 />
               </label>
               <button
                 type="button"
-                disabled={savingSteps}
-                className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground disabled:opacity-60"
-                onClick={() => void handleSaveSteps()}
+                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                onClick={() => void handleSaveStepTarget()}
               >
-                {savingSteps ? "Saving…" : "Save steps"}
+                Save target
               </button>
             </div>
-          </div>
-        ) : null}
-      </section>
+          ) : null}
 
-      {/* 5. Recent */}
-      {data && data.recentSessions.length > 0 ? (
+          {stepProgress ? (
+            <div className="mt-4">
+              <CompactProgressBar
+                label="Today"
+                valueText={
+                  stepProgress.hasEntry
+                    ? `${stepProgress.steps?.toLocaleString()} / ${stepProgress.target.toLocaleString()}`
+                    : `— / ${stepProgress.target.toLocaleString()}`
+                }
+                fillPercent={stepProgress.fillPercent}
+                tone={stepProgress.achieved ? "achieved" : "normal"}
+                statusLabel={
+                  !stepProgress.hasEntry
+                    ? "No steps logged yet today"
+                    : stepProgress.achieved
+                      ? "Target achieved"
+                      : `${stepProgress.remaining.toLocaleString()} remaining`
+                }
+              />
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[12px] text-muted">Update steps</span>
+                  <input
+                    inputMode="numeric"
+                    value={stepsDraft}
+                    placeholder="e.g. 7420"
+                    onChange={(event) => setStepsDraft(event.target.value)}
+                    className="h-11 w-36 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={savingSteps}
+                  className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground disabled:opacity-60"
+                  onClick={() => void handleSaveSteps()}
+                >
+                  {savingSteps ? "Saving…" : "Save steps"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* 5. Recent — current week context */}
+      {viewingCurrentWeek && data && data.recentSessions.length > 0 ? (
         <section className="border-t border-border/70 pt-8">
           <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
             Recent
@@ -789,20 +908,20 @@ export function TrainingHubExperience() {
           <button
             type="button"
             className="mt-5 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-            onClick={() => setMode({ kind: "log" })}
+            onClick={openUnplannedLog}
           >
             + Log workout
           </button>
         </section>
-      ) : (
+      ) : viewingCurrentWeek ? (
         <button
           type="button"
           className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-          onClick={() => setMode({ kind: "log" })}
+          onClick={openUnplannedLog}
         >
           + Log workout
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

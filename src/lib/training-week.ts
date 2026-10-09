@@ -64,6 +64,66 @@ export function endOfWeekSunday(localDate: string): string {
   return addDays(startOfWeekMonday(localDate), 6);
 }
 
+/** Shift a local date by whole Monday–Sunday weeks. */
+export function shiftWeek(localDate: string, weeks: number): string {
+  return addDays(startOfWeekMonday(localDate), weeks * 7);
+}
+
+export function isSameWeek(a: string, b: string): boolean {
+  return startOfWeekMonday(a) === startOfWeekMonday(b);
+}
+
+export type WeekRelation = "past" | "current" | "future";
+
+/** Where the week containing `localDate` sits relative to `today`. */
+export function weekRelationToToday(
+  localDate: string,
+  today: string,
+): WeekRelation {
+  const week = startOfWeekMonday(localDate);
+  const current = startOfWeekMonday(today);
+  if (week < current) {
+    return "past";
+  }
+  if (week > current) {
+    return "future";
+  }
+  return "current";
+}
+
+/**
+ * Compact UK label for a week, e.g. "12–18 October 2026"
+ * or "28 September – 4 October 2026" when the week spans months.
+ */
+export function formatWeekRangeLabel(weekStartOrDate: string): string {
+  const weekStart = startOfWeekMonday(weekStartOrDate);
+  const weekEnd = addDays(weekStart, 6);
+  const start = parseLocalDate(weekStart);
+  const end = parseLocalDate(weekEnd);
+
+  const monthYear = new Intl.DateTimeFormat("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+  const monthDay = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+  });
+
+  if (
+    start.getMonth() === end.getMonth() &&
+    start.getFullYear() === end.getFullYear()
+  ) {
+    return `${start.getDate()}–${end.getDate()} ${monthYear.format(end)}`;
+  }
+
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${monthDay.format(start)} – ${end.getDate()} ${monthYear.format(end)}`;
+  }
+
+  return `${monthDay.format(start)} ${start.getFullYear()} – ${monthDay.format(end)} ${end.getFullYear()}`;
+}
+
 export function buildWeekDays(input: {
   localDate: string;
   today?: string;
@@ -98,6 +158,8 @@ export function isTrainingSessionType(type: PlanTrainingTypeId): boolean {
  */
 export function buildWeeklyTrainingProgress(input: {
   localDate: string;
+  /** Real today — used so future weeks don’t show misleading completion fill. */
+  today?: string;
   target: number;
   planEntries: TrainingPlanEntryRecord[];
   sessions: TrainingSessionRecord[];
@@ -163,10 +225,12 @@ export function buildWeeklyTrainingProgress(input: {
   );
 
   const target = Math.max(1, Math.round(input.target));
-  const fillPercent = Math.min(
-    100,
-    Math.round((completedPlannedSessions / target) * 100),
-  );
+  // Future weeks: do not invent completion progress — planned count only.
+  const relation = weekRelationToToday(input.localDate, input.today ?? input.localDate);
+  const fillPercent =
+    relation === "future"
+      ? 0
+      : Math.min(100, Math.round((completedPlannedSessions / target) * 100));
 
   const occupiedDates = new Set(activePlans.map((entry) => entry.plan_date));
   const unplannedDays = 7 - occupiedDates.size;
@@ -185,7 +249,8 @@ export function buildWeeklyTrainingProgress(input: {
     fillPercent,
     plannedDurationMinutes,
     completedDurationMinutes,
-    achieved: completedPlannedSessions >= target,
+    achieved:
+      relation === "future" ? false : completedPlannedSessions >= target,
   };
 }
 
