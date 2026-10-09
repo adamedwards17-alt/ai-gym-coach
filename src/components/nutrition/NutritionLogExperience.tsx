@@ -24,6 +24,7 @@ import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
 import { getLocalCoachDate } from "@/lib/coach";
+import { suggestMealType } from "@/lib/meal-suggestion";
 import {
   entryDisplayTitle,
   estimateFromEntry,
@@ -60,36 +61,6 @@ function formatNutritionDate(localDate: string): string {
     day: "numeric",
     month: "long",
   }).format(date);
-}
-
-function nextMealOpportunity(
-  logged: Array<MealTypeId | null>,
-  hour: number,
-): PrimaryMealId | null {
-  const has = (meal: PrimaryMealId) => logged.includes(meal);
-
-  if (!has("breakfast") && hour < 14) {
-    return "breakfast";
-  }
-  if (!has("lunch") && hour >= 10 && hour < 17) {
-    return "lunch";
-  }
-  if (has("lunch") && !has("snack") && hour >= 14 && hour < 18) {
-    return "snack";
-  }
-  if (!has("dinner") && hour >= 15) {
-    return "dinner";
-  }
-  if (!has("breakfast")) {
-    return "breakfast";
-  }
-  if (!has("lunch")) {
-    return "lunch";
-  }
-  if (!has("dinner")) {
-    return "dinner";
-  }
-  return null;
 }
 
 function mealSectionLabel(meal: PrimaryMealId | "other"): string {
@@ -156,6 +127,7 @@ export function NutritionLogExperience({
   const [inspirationError, setInspirationError] = useState<string | null>(null);
   const [inspirationPending, startInspiration] = useTransition();
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
+  const [promptMealSelection, setPromptMealSelection] = useState(false);
   const [barcodeMeta, setBarcodeMeta] = useState<{
     barcode: string;
     brand: string | null;
@@ -163,7 +135,6 @@ export function NutritionLogExperience({
   const [clock, setClock] = useState(() => new Date());
 
   const today = getLocalLoggedDate();
-  const hour = clock.getHours();
 
   const step: Step = useMemo(() => {
     if (editing) {
@@ -199,9 +170,19 @@ export function NutritionLogExperience({
     return [...summary.plannedEntries, ...summary.eatenEntries];
   }, [summary]);
 
-  const loggedMealTypes = useMemo(
-    () => todayEntries.map((entry) => entry.meal_type),
-    [todayEntries],
+  /** Eaten only — planned food must not fill meal slots for suggestions. */
+  const eatenMealTypes = useMemo(
+    () => (summary?.eatenEntries ?? []).map((entry) => entry.meal_type),
+    [summary],
+  );
+
+  const suggestedMealType = useMemo(
+    () =>
+      suggestMealType({
+        now: clock,
+        eatenMealTypes,
+      }),
+    [clock, eatenMealTypes],
   );
 
   const mealGroups = useMemo(() => {
@@ -229,10 +210,13 @@ export function NutritionLogExperience({
     return groups;
   }, [todayEntries]);
 
-  const nextMeal = useMemo(
-    () => nextMealOpportunity(loggedMealTypes, hour),
-    [loggedMealTypes, hour],
-  );
+  /** Empty-section prompt for the time-aware suggested meal (if still empty). */
+  const nextMeal = useMemo(() => {
+    if (mealGroups[suggestedMealType].length > 0) {
+      return null;
+    }
+    return suggestedMealType;
+  }, [mealGroups, suggestedMealType]);
 
   async function refreshDay() {
     const result = await loadNutritionDay(getLocalLoggedDate());
@@ -290,11 +274,20 @@ export function NutritionLogExperience({
           : null,
       );
 
+      // Habit hand-off often arrives before the day summary; use pending meal
+      // when present, otherwise a fresh time-based suggestion.
+      const meal =
+        pending.mealType ??
+        suggestMealType({
+          now: new Date(),
+          eatenMealTypes: [],
+        });
+
       if (pending.estimate) {
         const synthetic: NutritionEntryRecord = {
           id: `pending-${Date.now()}`,
           logged_date: getLocalLoggedDate(),
-          meal_type: pending.mealType,
+          meal_type: meal,
           description: pending.description,
           display_name: pending.displayName,
           search_aliases: [],
@@ -310,7 +303,12 @@ export function NutritionLogExperience({
           created_at: new Date().toISOString(),
         };
         setRecentFood({ entry: synthetic, estimate: pending.estimate });
-        setDraft(emptyDraft);
+        setDraft({
+          ...emptyDraft,
+          mealType: meal,
+          mealTypeSkipped: false,
+        });
+        setPromptMealSelection(true);
         setEntryMode(null);
         return;
       }
@@ -319,11 +317,12 @@ export function NutritionLogExperience({
       setEntryMode("describe");
       setDraft({
         description: pending.description,
-        mealType: pending.mealType,
-        mealTypeSkipped: pending.mealType == null,
+        mealType: meal,
+        mealTypeSkipped: false,
         status: "eaten",
       });
-      setEditing(pending.mealType == null ? "mealType" : null);
+      setEditing(null);
+      setPromptMealSelection(false);
     };
 
     queueMicrotask(apply);
@@ -403,6 +402,7 @@ export function NutritionLogExperience({
     setRecentFood(null);
     setBarcodeMeta(null);
     setEntryMode(null);
+    setPromptMealSelection(false);
     setEditing(null);
     setJustSaved(true);
     setLoggingOpen(false);
@@ -410,11 +410,17 @@ export function NutritionLogExperience({
   }
 
   function openLogging(mealType: MealTypeId | null = null) {
-    setDraft(
-      mealType
-        ? { ...emptyDraft, mealType, mealTypeSkipped: false }
-        : emptyDraft,
-    );
+    const suggested =
+      mealType ??
+      suggestMealType({
+        now: new Date(),
+        eatenMealTypes,
+      });
+    setDraft({
+      ...emptyDraft,
+      mealType: suggested,
+      mealTypeSkipped: false,
+    });
     setEstimate(null);
     setPendingEstimate(null);
     setClarificationQuestion(null);
@@ -423,6 +429,7 @@ export function NutritionLogExperience({
     setRecentFood(null);
     setBarcodeMeta(null);
     setEntryMode(null);
+    setPromptMealSelection(false);
     setEditing(null);
     setSaveError(null);
     setJustSaved(false);
@@ -448,6 +455,7 @@ export function NutritionLogExperience({
     setRecentFood(null);
     setBarcodeMeta(null);
     setEntryMode(null);
+    setPromptMealSelection(false);
     setDraft(emptyDraft);
     setEditing(null);
     setComposerKey((key) => key + 1);
@@ -472,17 +480,29 @@ export function NutritionLogExperience({
     beginEdit();
     setLoggingOpen(true);
     const reused = estimateFromEntry(entry);
+    const suggested = suggestMealType({
+      now: new Date(),
+      eatenMealTypes,
+    });
 
     // Existing foods with saved macros → structured editor (not conversational).
     if (reused) {
       setJustSaved(false);
-      setRecentFood({ entry, estimate: reused });
-      setDraft(emptyDraft);
+      setRecentFood({
+        entry: { ...entry, meal_type: suggested },
+        estimate: reused,
+      });
+      setDraft({
+        ...emptyDraft,
+        mealType: suggested,
+        mealTypeSkipped: false,
+      });
       setEstimate(null);
       setPendingEstimate(null);
       setClarificationQuestion(null);
       setClarificationAnswer("");
       setFromSuggestion(false);
+      setPromptMealSelection(true);
       setEditing(null);
       setSaveError(null);
       return;
@@ -492,15 +512,16 @@ export function NutritionLogExperience({
     setRecentFood(null);
     setDraft({
       description: entry.description,
-      mealType: entry.meal_type,
-      mealTypeSkipped: entry.meal_type == null,
+      mealType: suggested,
+      mealTypeSkipped: false,
       status: "eaten",
     });
     setEstimate(null);
     setPendingEstimate(null);
     setClarificationQuestion(null);
     setFromSuggestion(false);
-    setEditing(entry.meal_type == null ? "mealType" : null);
+    setPromptMealSelection(false);
+    setEditing(null);
   }
 
   async function handleRecentFoodLog(values: RecentFoodLogValues) {
@@ -542,6 +563,7 @@ export function NutritionLogExperience({
     setFromSuggestion(false);
     setBarcodeMeta(null);
     setEntryMode(null);
+    setPromptMealSelection(false);
     setEditing(null);
     setJustSaved(true);
     setLoggingOpen(false);
@@ -605,6 +627,7 @@ export function NutritionLogExperience({
   async function handleSaveEdit(values: {
     description: string;
     displayName: string;
+    mealType: MealTypeId | null;
     calories: number;
     proteinG: number;
     carbsG: number;
@@ -619,6 +642,7 @@ export function NutritionLogExperience({
       entryId: editEntry.id,
       description: values.description,
       displayName: values.displayName,
+      mealType: values.mealType,
       calories: values.calories,
       proteinG: values.proteinG,
       carbsG: values.carbsG,
@@ -754,7 +778,13 @@ export function NutritionLogExperience({
               key={`${recentFood.entry.id}-${composerKey}`}
               entry={recentFood.entry}
               baseEstimate={recentFood.estimate}
-              initialMealType={initialMealType ?? draft.mealType}
+              initialMealType={
+                draft.mealType ??
+                initialMealType ??
+                recentFood.entry.meal_type ??
+                suggestedMealType
+              }
+              promptMealSelection={promptMealSelection}
               saving={saving}
               error={saveError}
               onCancel={resetDescriptionFlow}
@@ -815,6 +845,10 @@ export function NutritionLogExperience({
                   }}
                   onConfirm={(payload) => {
                     beginEdit();
+                    const meal = suggestMealType({
+                      now: new Date(),
+                      eatenMealTypes,
+                    });
                     setBarcodeMeta({
                       barcode: payload.barcode,
                       brand: payload.brand,
@@ -828,7 +862,7 @@ export function NutritionLogExperience({
                       entry: {
                         id: `barcode-${payload.barcode}`,
                         logged_date: getLocalLoggedDate(),
-                        meal_type: draft.mealType,
+                        meal_type: meal,
                         description: payload.description,
                         display_name: payload.displayName,
                         search_aliases: [],
@@ -845,7 +879,12 @@ export function NutritionLogExperience({
                       },
                       estimate: estimateWithName,
                     });
-                    setDraft(emptyDraft);
+                    setDraft({
+                      ...emptyDraft,
+                      mealType: meal,
+                      mealTypeSkipped: false,
+                    });
+                    setPromptMealSelection(true);
                     setEstimate(null);
                     setPendingEstimate(null);
                     setClarificationQuestion(null);
@@ -919,8 +958,8 @@ export function NutritionLogExperience({
               {draft.description ? (
                 <>
                   <CoachMessage id="nutrition-q-meal">
-                    Was that breakfast, lunch, or something else? You can skip
-                    this.
+                    Which meal is this for? You can change the suggestion or
+                    skip.
                   </CoachMessage>
                   {(draft.mealTypeSkipped || draft.mealType !== null) &&
                   step !== "mealType" ? (

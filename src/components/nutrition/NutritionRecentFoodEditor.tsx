@@ -36,6 +36,8 @@ type NutritionRecentFoodEditorProps = {
   entry: NutritionEntryRecord;
   baseEstimate: NutritionEstimate;
   initialMealType?: MealTypeId | null;
+  /** When true, expand meal selection and ask "Which meal is this for?" */
+  promptMealSelection?: boolean;
   saving: boolean;
   error: string | null;
   onCancel: () => void;
@@ -69,6 +71,7 @@ export function NutritionRecentFoodEditor({
   entry,
   baseEstimate,
   initialMealType = null,
+  promptMealSelection = false,
   saving,
   error,
   onCancel,
@@ -85,7 +88,9 @@ export function NutritionRecentFoodEditor({
     initialMealType ?? entry.meal_type,
   );
   const [status, setStatus] = useState<NutritionEntryStatus>("eaten");
-  const [expanded, setExpanded] = useState<EditorRow | null>(null);
+  const [expanded, setExpanded] = useState<EditorRow | null>(
+    promptMealSelection ? "mealType" : null,
+  );
   const [manualSource, setManualSource] = useState(false);
 
   const macros = useMemo(
@@ -237,7 +242,9 @@ export function NutritionRecentFoodEditor({
         />
 
         <EditorLine
-          label="Meal type"
+          label={
+            promptMealSelection ? "Which meal is this for?" : "Meal type"
+          }
           value={mealLabel}
           expanded={expanded === "mealType"}
           onToggle={() => toggleRow("mealType")}

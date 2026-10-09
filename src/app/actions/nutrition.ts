@@ -366,6 +366,8 @@ export async function updateNutritionEntry(input: {
   description: string;
   /** When set, renames the diary title without requiring a description change. */
   displayName?: string | null;
+  /** When provided, updates the meal category (including null to clear). */
+  mealType?: MealTypeId | null;
   calories: number;
   proteinG: number;
   carbsG: number;
@@ -374,6 +376,14 @@ export async function updateNutritionEntry(input: {
   const description = input.description.trim();
   if (!description) {
     return { status: "error", message: "Add a short food description." };
+  }
+
+  if (
+    input.mealType !== undefined &&
+    input.mealType !== null &&
+    !isMealTypeId(input.mealType)
+  ) {
+    return { status: "error", message: "That meal category isn’t valid." };
   }
 
   const calories = Math.round(input.calories);
@@ -437,19 +447,24 @@ export async function updateNutritionEntry(input: {
       ? deriveDisplayName(description, explicitName)
       : existingName ?? deriveDisplayName(description);
 
+    const updatePayload: Record<string, unknown> = {
+      description,
+      display_name: displayName,
+      search_aliases: buildSearchAliases({ displayName, description, brand }),
+      calories_estimated: calories,
+      protein_g_estimated: proteinG,
+      carbs_g_estimated: carbsG,
+      fat_g_estimated: fatG,
+      estimation_source: "user",
+      estimation_confidence: null,
+    };
+    if (input.mealType !== undefined) {
+      updatePayload.meal_type = input.mealType;
+    }
+
     const { data, error } = await supabase
       .from("nutrition_entries")
-      .update({
-        description,
-        display_name: displayName,
-        search_aliases: buildSearchAliases({ displayName, description, brand }),
-        calories_estimated: calories,
-        protein_g_estimated: proteinG,
-        carbs_g_estimated: carbsG,
-        fat_g_estimated: fatG,
-        estimation_source: "user",
-        estimation_confidence: null,
-      })
+      .update(updatePayload)
       .eq("id", input.entryId)
       .eq("user_id", user.id)
       .select(NUTRITION_ENTRY_SELECT)

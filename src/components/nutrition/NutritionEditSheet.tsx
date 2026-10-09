@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { entryDisplayTitle, type NutritionEntryRecord } from "@/lib/nutrition";
+import { editableMealTypeOptions } from "@/lib/meal-suggestion";
+import {
+  entryDisplayTitle,
+  labelForMealType,
+  type MealTypeId,
+  type NutritionEntryRecord,
+} from "@/lib/nutrition";
 
 type NutritionEditSheetProps = {
   entry: NutritionEntryRecord;
@@ -11,6 +17,7 @@ type NutritionEditSheetProps = {
   onSave: (values: {
     description: string;
     displayName: string;
+    mealType: MealTypeId | null;
     calories: number;
     proteinG: number;
     carbsG: number;
@@ -27,6 +34,7 @@ export function NutritionEditSheet({
 }: NutritionEditSheetProps) {
   const [displayName, setDisplayName] = useState(entryDisplayTitle(entry));
   const [description, setDescription] = useState(entry.description);
+  const [mealType, setMealType] = useState<MealTypeId | null>(entry.meal_type);
   const [calories, setCalories] = useState(
     String(entry.calories_estimated ?? 0),
   );
@@ -52,7 +60,7 @@ export function NutritionEditSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="nutrition-edit-title"
-        className="relative w-full max-w-md rounded-[1.75rem] border border-border bg-background p-5 shadow-[0_24px_80px_rgb(0_0_0/0.45)]"
+        className="relative max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-[1.75rem] border border-border bg-background p-5 shadow-[0_24px_80px_rgb(0_0_0/0.45)]"
       >
         <p
           id="nutrition-edit-title"
@@ -83,6 +91,29 @@ export function NutritionEditSheet({
               className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
             />
           </label>
+
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="text-[12px] text-muted">Meal category</legend>
+            <p className="text-[12px] text-muted">
+              Currently {labelForMealType(mealType)}. Tap to move this entry.
+            </p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {editableMealTypeOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setMealType(option.id)}
+                  className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${
+                    mealType === option.id
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border text-foreground hover:border-white/20"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
 
           <div className="grid grid-cols-2 gap-3">
             {(
@@ -121,6 +152,7 @@ export function NutritionEditSheet({
               onSave({
                 description,
                 displayName,
+                mealType,
                 calories: Number(calories),
                 proteinG: Number(proteinG),
                 carbsG: Number(carbsG),
