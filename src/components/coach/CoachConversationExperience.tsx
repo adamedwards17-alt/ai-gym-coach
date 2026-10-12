@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { listPendingCoachChangeProposals } from "@/app/actions/coach-changes";
 import {
   createCoachConversation,
   loadCoachConversation,
@@ -10,6 +11,7 @@ import {
   sendCoachMessage,
 } from "@/app/actions/coach";
 import { listPendingTrainingProposals } from "@/app/actions/training";
+import { CoachChangeProposalCard } from "@/components/coach/CoachChangeProposalCard";
 import { PlanProposalCard } from "@/components/train/PlanProposalCard";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import {
@@ -17,6 +19,8 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import type { CoachChangeProposalRecord } from "@/lib/coach-change-proposals";
+import { getCoachLoadingMessage } from "@/lib/coach-loading";
 import {
   hasSentMealInspirationQuickReply,
   isMealInspirationConversation,
@@ -37,16 +41,27 @@ export function CoachConversationExperience({
     useState<CoachConversationRecord | null>(null);
   const [messages, setMessages] = useState<CoachMessageRecord[]>([]);
   const [proposals, setProposals] = useState<TrainingPlanProposalRecord[]>([]);
+  const [changeProposals, setChangeProposals] = useState<
+    CoachChangeProposalRecord[]
+  >([]);
   const [draft, setDraft] = useState("");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [creating, startCreate] = useTransition();
+  const [loadingMessage, setLoadingMessage] = useState(
+    "Thinking that through…",
+  );
 
   const refreshProposals = useCallback(() => {
     void listPendingTrainingProposals({ conversationId }).then((result) => {
       if (result.status === "ok") {
         setProposals(result.proposals);
+      }
+    });
+    void listPendingCoachChangeProposals({ conversationId }).then((result) => {
+      if (result.status === "ok") {
+        setChangeProposals(result.proposals);
       }
     });
   }, [conversationId]);
@@ -79,6 +94,15 @@ export function CoachConversationExperience({
       }
     });
 
+    void listPendingCoachChangeProposals({ conversationId }).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      if (result.status === "ok") {
+        setChangeProposals(result.proposals);
+      }
+    });
+
     return () => {
       cancelled = true;
     };
@@ -86,7 +110,7 @@ export function CoachConversationExperience({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pending]);
+  }, [messages, pending, proposals, changeProposals]);
 
   function sendContent(content: string) {
     const trimmed = content.trim();
@@ -96,6 +120,7 @@ export function CoachConversationExperience({
 
     setDraft("");
     setError(null);
+    setLoadingMessage(getCoachLoadingMessage(trimmed));
 
     const optimistic: CoachMessageRecord = {
       id: `local-${conversationId}-${messages.length}-${trimmed.length}`,
@@ -117,6 +142,7 @@ export function CoachConversationExperience({
         setConversation(result.conversation);
         setMessages(result.messages);
         refreshProposals();
+        router.refresh();
         setError(null);
         return;
       }
@@ -249,18 +275,29 @@ export function CoachConversationExperience({
         )}
 
         {pending ? (
-          <CoachMessage footnote="Thinking…">
-            Looking at your day…
-          </CoachMessage>
+          <CoachMessage footnote="Thinking…">{loadingMessage}</CoachMessage>
         ) : null}
 
-        {proposals.length > 0 ? (
+        {proposals.length > 0 || changeProposals.length > 0 ? (
           <div className="space-y-3 pl-0 sm:pl-2">
             {proposals.map((proposal) => (
               <PlanProposalCard
                 key={proposal.id}
                 proposal={proposal}
-                onResolved={refreshProposals}
+                onResolved={() => {
+                  refreshProposals();
+                  router.refresh();
+                }}
+              />
+            ))}
+            {changeProposals.map((proposal) => (
+              <CoachChangeProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                onResolved={() => {
+                  refreshProposals();
+                  router.refresh();
+                }}
               />
             ))}
           </div>

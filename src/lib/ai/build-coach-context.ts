@@ -15,6 +15,10 @@ import type {
   CoachWeeklyCheckInContext,
   CoachWeightContext,
 } from "@/lib/ai/types";
+import {
+  activityLevelDescription,
+  activityLevelLabel,
+} from "@/lib/activity-pattern";
 import { resolveDailyStepTarget } from "@/lib/activity-steps";
 import {
   isCoachEventType,
@@ -29,6 +33,7 @@ import {
   toNutritionEntryRecord,
 } from "@/lib/nutrition-day";
 import { isEstimationConfidence, isNutritionEntryStatus } from "@/lib/nutrition";
+import { weeksRemainingUntil } from "@/lib/programme-deadline";
 import { createClient } from "@/lib/supabase/server";
 import {
   endOfWeekSunday,
@@ -58,6 +63,9 @@ const PROFILE_SELECT = [
   "equipment",
   "likes_dislikes",
   "activity_level",
+  "cycle_commute_days_per_week",
+  "cycle_commute_minutes",
+  "activity_pattern_notes",
   "typical_sleep",
   "lifestyle_constraints",
   "dietary_preferences",
@@ -116,6 +124,24 @@ function toProfileContext(
       typeof row.likes_dislikes === "string" ? row.likes_dislikes : null,
     activity_level:
       typeof row.activity_level === "string" ? row.activity_level : null,
+    activity_level_label: activityLevelLabel(
+      typeof row.activity_level === "string" ? row.activity_level : null,
+    ),
+    activity_level_description: activityLevelDescription(
+      typeof row.activity_level === "string" ? row.activity_level : null,
+    ),
+    cycle_commute_days_per_week:
+      typeof row.cycle_commute_days_per_week === "number"
+        ? row.cycle_commute_days_per_week
+        : null,
+    cycle_commute_minutes:
+      typeof row.cycle_commute_minutes === "number"
+        ? row.cycle_commute_minutes
+        : null,
+    activity_pattern_notes:
+      typeof row.activity_pattern_notes === "string"
+        ? row.activity_pattern_notes
+        : null,
     typical_sleep:
       typeof row.typical_sleep === "string" ? row.typical_sleep : null,
     lifestyle_constraints:
@@ -170,6 +196,7 @@ export async function buildCoachContext(input: {
     eventsResult,
     constraintsResult,
     proposalsResult,
+    changeProposalsResult,
     nutritionTargetsEnsured,
     weightsResult,
     weeklyCheckInsResult,
@@ -263,6 +290,13 @@ export async function buildCoachContext(input: {
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(5),
+    supabase
+      .from("coach_change_proposals")
+      .select("id, status, reason, kind, payload, created_at")
+      .eq("user_id", input.userId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(8),
     ensureNutritionTargetsForUser(supabase, input.userId),
     supabase
       .from("weight_measurements")
@@ -287,11 +321,13 @@ export async function buildCoachContext(input: {
       .maybeSingle(),
     supabase
       .from("training_phases")
-      .select("name, kind, status")
+      .select(
+        "id, slug, name, kind, status, duration_weeks, start_date, end_date, sort_order",
+      )
       .eq("user_id", input.userId)
-      .in("status", ["active", "upcoming"])
+      .in("status", ["active", "upcoming", "completed"])
       .order("sort_order", { ascending: true })
-      .limit(4),
+      .limit(6),
     supabase
       .from("workout_set_logs")
       .select(
@@ -337,6 +373,12 @@ export async function buildCoachContext(input: {
     console.error(
       "[coach-context] Proposals:",
       proposalsResult.error.message,
+    );
+  }
+  if (changeProposalsResult.error) {
+    console.error(
+      "[coach-context] Change proposals:",
+      changeProposalsResult.error.message,
     );
   }
   if (nutritionResult.error) {
@@ -442,6 +484,7 @@ export async function buildCoachContext(input: {
           proteinG: nutritionDaySummary.targets.protein_g,
           carbsG: nutritionDaySummary.targets.carbs_g,
           fatG: nutritionDaySummary.targets.fat_g,
+          isManual: nutritionDaySummary.targets.is_manual === true,
         }
       : null,
     targetsNote: nutritionDaySummary.targetsMessage,
@@ -594,23 +637,50 @@ export async function buildCoachContext(input: {
     })
     .filter((row): row is CoachChatAvailabilityContext => row !== null);
 
-  const pendingProposals: CoachChatProposalContext[] = (
-    proposalsResult.data ?? []
-  )
-    .map((row) => {
-      const record = row as Record<string, unknown>;
-      if (typeof record.id !== "string" || typeof record.status !== "string") {
-        return null;
-      }
-      const changes = Array.isArray(record.changes) ? record.changes : [];
-      return {
-        id: record.id,
-        status: record.status,
-        reason: typeof record.reason === "string" ? record.reason : null,
-        changeCount: changes.length,
-      };
-    })
-    .filter((row): row is CoachChatProposalContext => row !== null);
+  const pendingPlanProposals: CoachChatProposalContext[] = [];
+  for (const row of proposalsResult.data ?? []) {
+    const record = row as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.status !== "string") {
+      continue;
+    }
+    const changes = Array.isArray(record.changes) ? record.changes : [];
+    pendingPlanProposals.push({
+      id: record.id,
+      status: record.status,
+      reason: typeof record.reason === "string" ? record.reason : null,
+      changeCount: changes.length,
+      kind: "weekly_plan",
+    });
+  }
+
+  const pendingChangeProposals: CoachChatProposalContext[] = [];
+  for (const row of changeProposalsResult.data ?? []) {
+    const record = row as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.status !== "string") {
+      continue;
+    }
+    const payload =
+      record.payload &&
+      typeof record.payload === "object" &&
+      !Array.isArray(record.payload)
+        ? (record.payload as Record<string, unknown>)
+        : {};
+    const phaseCount = Array.isArray(payload.phases)
+      ? payload.phases.length
+      : 0;
+    pendingChangeProposals.push({
+      id: record.id,
+      status: record.status,
+      reason: typeof record.reason === "string" ? record.reason : null,
+      changeCount: phaseCount > 0 ? phaseCount : 1,
+      kind: typeof record.kind === "string" ? record.kind : "change",
+    });
+  }
+
+  const pendingProposals = [
+    ...pendingPlanProposals,
+    ...pendingChangeProposals,
+  ];
 
   const profileRow = profileResult.data as unknown as Record<
     string,
@@ -701,13 +771,22 @@ export async function buildCoachContext(input: {
     | { id: string; title: string | null }
     | null;
 
-  const phases = phaseResult.data ?? [];
-  const activePhase = phases.find(
-    (p) => (p as { status?: string }).status === "active",
-  ) as { name?: string; kind?: string } | undefined;
-  const upcomingPhase = phases.find(
-    (p) => (p as { status?: string }).status === "upcoming",
-  ) as { name?: string } | undefined;
+  const phases = (phaseResult.data ?? []).map((row) => {
+    const p = row as Record<string, unknown>;
+    return {
+      id: typeof p.id === "string" ? p.id : "",
+      slug: typeof p.slug === "string" ? p.slug : "",
+      name: typeof p.name === "string" ? p.name : "",
+      kind: typeof p.kind === "string" ? p.kind : "other",
+      status: typeof p.status === "string" ? p.status : "upcoming",
+      durationWeeks:
+        typeof p.duration_weeks === "number" ? p.duration_weeks : null,
+      startDate: typeof p.start_date === "string" ? p.start_date : null,
+      endDate: typeof p.end_date === "string" ? p.end_date : null,
+    };
+  });
+  const activePhase = phases.find((p) => p.status === "active");
+  const upcomingPhase = phases.find((p) => p.status === "upcoming");
 
   // Compact recent strength set history for Coach Q&A (real logs only).
   const recentStrength: CoachStrengthPerformanceContext[] = [];
@@ -796,12 +875,13 @@ export async function buildCoachContext(input: {
       typeof programmeResult.data?.name === "string"
         ? programmeResult.data.name
         : null,
-    activePhaseName:
-      typeof activePhase?.name === "string" ? activePhase.name : null,
-    activePhaseKind:
-      typeof activePhase?.kind === "string" ? activePhase.kind : null,
-    upcomingPhaseName:
-      typeof upcomingPhase?.name === "string" ? upcomingPhase.name : null,
+    activePhaseName: activePhase?.name ?? null,
+    activePhaseKind: activePhase?.kind ?? null,
+    upcomingPhaseName: upcomingPhase?.name ?? null,
+    phases: phases.filter((p) => p.id),
+    weeksUntilTarget: profile.target_date
+      ? weeksRemainingUntil(input.localDate, profile.target_date)
+      : null,
     recentStrength,
   };
 

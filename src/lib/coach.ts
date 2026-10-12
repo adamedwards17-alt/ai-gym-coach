@@ -49,11 +49,35 @@ export type ParsedPlanProposal = {
   changes: Array<Record<string, unknown>>;
 };
 
+export type ParsedNutritionProposalBlock = {
+  reason: string | null;
+  payload: Record<string, unknown>;
+};
+
+export type ParsedProgrammeProposalBlock = {
+  reason: string | null;
+  payload: Record<string, unknown>;
+};
+
+export type ParsedActivityProposalBlock = {
+  reason: string | null;
+  payload: Record<string, unknown>;
+};
+
+export type ParsedGoalProposalBlock = {
+  reason: string | null;
+  payload: Record<string, unknown>;
+};
+
 export type ParsedCoachChatResponse = {
   reply: string;
   title: string | null;
   events: ParsedCoachEvent[];
   planProposal: ParsedPlanProposal | null;
+  nutritionProposal: ParsedNutritionProposalBlock | null;
+  programmeProposal: ParsedProgrammeProposalBlock | null;
+  activityProposal: ParsedActivityProposalBlock | null;
+  goalProposal: ParsedGoalProposalBlock | null;
   structured: boolean;
 };
 
@@ -182,6 +206,10 @@ export function parseCoachChatResponse(
       title: null,
       events: [],
       planProposal: null,
+      nutritionProposal: null,
+      programmeProposal: null,
+      activityProposal: null,
+      goalProposal: null,
       structured: false,
     };
   }
@@ -242,11 +270,57 @@ export function parseCoachChatResponse(
     }
   }
 
+  function parseNamedProposal(
+    keySnake: string,
+    keyCamel: string,
+  ): { reason: string | null; payload: Record<string, unknown> } | null {
+    const raw = record[keySnake] ?? record[keyCamel];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
+    }
+    const proposal = raw as Record<string, unknown>;
+    let payload: Record<string, unknown>;
+    if (
+      proposal.payload &&
+      typeof proposal.payload === "object" &&
+      !Array.isArray(proposal.payload)
+    ) {
+      payload = proposal.payload as Record<string, unknown>;
+    } else {
+      const { reason: _ignoredReason, ...rest } = proposal;
+      void _ignoredReason;
+      payload = rest;
+    }
+    if (Object.keys(payload).length === 0) {
+      return null;
+    }
+    return {
+      reason:
+        typeof proposal.reason === "string" && proposal.reason.trim()
+          ? proposal.reason.trim().slice(0, 400)
+          : null,
+      payload,
+    };
+  }
+
   return {
     reply,
     title,
     events: events.slice(0, 3),
     planProposal,
+    nutritionProposal: parseNamedProposal(
+      "nutrition_proposal",
+      "nutritionProposal",
+    ),
+    programmeProposal: parseNamedProposal(
+      "programme_proposal",
+      "programmeProposal",
+    ),
+    activityProposal: parseNamedProposal(
+      "activity_proposal",
+      "activityProposal",
+    ),
+    goalProposal: parseNamedProposal("goal_proposal", "goalProposal"),
     structured: true,
   };
 }

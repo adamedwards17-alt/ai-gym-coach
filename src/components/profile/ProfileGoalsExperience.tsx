@@ -52,6 +52,9 @@ export function ProfileGoalsExperience() {
   const [heightCm, setHeightCm] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [activityLevel, setActivityLevel] = useState<string | null>(null);
+  const [cycleCommuteDays, setCycleCommuteDays] = useState("");
+  const [cycleCommuteMinutes, setCycleCommuteMinutes] = useState("");
+  const [activityPatternNotes, setActivityPatternNotes] = useState("");
   const [trainingFrequency, setTrainingFrequency] = useState<string | null>(
     null,
   );
@@ -78,6 +81,17 @@ export function ProfileGoalsExperience() {
     setHeightCm(profile.heightCm != null ? String(profile.heightCm) : "");
     setWeightKg(profile.weightKg != null ? String(profile.weightKg) : "");
     setActivityLevel(profile.activityLevel);
+    setCycleCommuteDays(
+      profile.cycleCommuteDaysPerWeek != null
+        ? String(profile.cycleCommuteDaysPerWeek)
+        : "",
+    );
+    setCycleCommuteMinutes(
+      profile.cycleCommuteMinutes != null
+        ? String(profile.cycleCommuteMinutes)
+        : "",
+    );
+    setActivityPatternNotes(profile.activityPatternNotes ?? "");
     setTrainingFrequency(profile.trainingFrequency);
     setPrimaryGoal(profile.primaryGoal);
     setGoalOwnWords(profile.goalOwnWords ?? "");
@@ -126,6 +140,13 @@ export function ProfileGoalsExperience() {
       heightCm: heightCm ? Number(heightCm) : null,
       weightKg: weightKg ? Number(weightKg) : null,
       activityLevel,
+      cycleCommuteDaysPerWeek: cycleCommuteDays
+        ? Number(cycleCommuteDays)
+        : null,
+      cycleCommuteMinutes: cycleCommuteMinutes
+        ? Number(cycleCommuteMinutes)
+        : null,
+      activityPatternNotes: activityPatternNotes.trim() || null,
       trainingFrequency,
       primaryGoal,
       goalOwnWords: goalOwnWords.trim() || null,
@@ -368,6 +389,10 @@ export function ProfileGoalsExperience() {
           </div>
           <div>
             <p className="mb-2 text-[13px] text-muted">Activity level</p>
+            <p className="mb-3 text-[12px] leading-5 text-muted">
+              This is your typical day outside planned workouts. Cycle commuting
+              is recorded separately so twice a week is not treated as every day.
+            </p>
             <OptionSelector
               name="activity"
               options={activityLevelOptions}
@@ -375,6 +400,35 @@ export function ProfileGoalsExperience() {
               onChange={setActivityLevel}
             />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Cycle to work (days/week)">
+              <input
+                inputMode="numeric"
+                value={cycleCommuteDays}
+                onChange={(e) => setCycleCommuteDays(e.target.value)}
+                placeholder="e.g. 2"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Typical ride (minutes)">
+              <input
+                inputMode="numeric"
+                value={cycleCommuteMinutes}
+                onChange={(e) => setCycleCommuteMinutes(e.target.value)}
+                placeholder="one way"
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          <Field label="Activity notes (optional)">
+            <textarea
+              value={activityPatternNotes}
+              onChange={(e) => setActivityPatternNotes(e.target.value)}
+              rows={2}
+              className={inputClass}
+              placeholder="e.g. cycle to the office twice a week"
+            />
+          </Field>
         </div>
       </section>
 

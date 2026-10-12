@@ -1,12 +1,21 @@
 "use server";
 
-import { createTrainingPlanProposal } from "@/app/actions/training";
+import {
+  acceptPendingCoachChangesForConversation,
+  createCoachChangeProposal,
+} from "@/app/actions/coach-changes";
+import {
+  acceptTrainingPlanProposal,
+  createTrainingPlanProposal,
+  listPendingTrainingProposals,
+} from "@/app/actions/training";
 import { buildCoachContext } from "@/lib/ai/build-coach-context";
 import {
   GeminiProvider,
   isGeminiConfigured,
 } from "@/lib/ai/providers/gemini";
 import { getCurrentUser } from "@/lib/auth/session";
+import { isCoachAffirmation } from "@/lib/coach-affirmation";
 import {
   isValidCoachDate,
   parseCoachChatResponse,
@@ -554,7 +563,7 @@ async function generateAndPersistReply(input: {
           conversationId: input.conversationId,
           reason: parsed.planProposal.reason,
           changes,
-          idempotencyKey: `msg:${assistantRow.id}`,
+          idempotencyKey: `msg:${assistantRow.id}:plan`,
         });
         if (proposalResult.status === "error") {
           console.error(
@@ -562,6 +571,70 @@ async function generateAndPersistReply(input: {
             proposalResult.message,
           );
         }
+      }
+    }
+
+    if (parsed.nutritionProposal) {
+      const nutritionResult = await createCoachChangeProposal({
+        conversationId: input.conversationId,
+        kind: "nutrition_targets",
+        reason: parsed.nutritionProposal.reason,
+        payload: parsed.nutritionProposal.payload,
+        idempotencyKey: `msg:${assistantRow.id}:nutrition`,
+      });
+      if (nutritionResult.status === "error") {
+        console.error(
+          "[coach] Nutrition proposal save failed:",
+          nutritionResult.message,
+        );
+      }
+    }
+
+    if (parsed.programmeProposal) {
+      const programmeResult = await createCoachChangeProposal({
+        conversationId: input.conversationId,
+        kind: "programme_phases",
+        reason: parsed.programmeProposal.reason,
+        payload: parsed.programmeProposal.payload,
+        idempotencyKey: `msg:${assistantRow.id}:programme`,
+      });
+      if (programmeResult.status === "error") {
+        console.error(
+          "[coach] Programme proposal save failed:",
+          programmeResult.message,
+        );
+      }
+    }
+
+    if (parsed.activityProposal) {
+      const activityResult = await createCoachChangeProposal({
+        conversationId: input.conversationId,
+        kind: "activity_pattern",
+        reason: parsed.activityProposal.reason,
+        payload: parsed.activityProposal.payload,
+        idempotencyKey: `msg:${assistantRow.id}:activity`,
+      });
+      if (activityResult.status === "error") {
+        console.error(
+          "[coach] Activity proposal save failed:",
+          activityResult.message,
+        );
+      }
+    }
+
+    if (parsed.goalProposal) {
+      const goalResult = await createCoachChangeProposal({
+        conversationId: input.conversationId,
+        kind: "goal",
+        reason: parsed.goalProposal.reason,
+        payload: parsed.goalProposal.payload,
+        idempotencyKey: `msg:${assistantRow.id}:goal`,
+      });
+      if (goalResult.status === "error") {
+        console.error(
+          "[coach] Goal proposal save failed:",
+          goalResult.message,
+        );
       }
     }
 
@@ -688,6 +761,36 @@ export async function sendCoachMessage(input: {
       .update({ updated_at: new Date().toISOString() })
       .eq("id", input.conversationId)
       .eq("user_id", user.id);
+
+    // Verbal confirmation: apply pending proposals before the next coach reply
+    // so the model sees the updated canonical state and can confirm what saved.
+    if (isCoachAffirmation(content)) {
+      const trainingPending = await listPendingTrainingProposals({
+        conversationId: input.conversationId,
+      });
+      if (trainingPending.status === "ok") {
+        for (const proposal of trainingPending.proposals) {
+          const accepted = await acceptTrainingPlanProposal({
+            proposalId: proposal.id,
+          });
+          if (accepted.status === "error") {
+            console.error(
+              "[coach] Verbal plan accept failed:",
+              accepted.message,
+            );
+          }
+        }
+      }
+      const changeAccepted = await acceptPendingCoachChangesForConversation({
+        conversationId: input.conversationId,
+      });
+      if (changeAccepted.status === "error") {
+        console.error(
+          "[coach] Verbal change accept failed:",
+          changeAccepted.message,
+        );
+      }
+    }
 
     return generateAndPersistReply({
       userId: user.id,

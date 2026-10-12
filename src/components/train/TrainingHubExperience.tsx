@@ -435,9 +435,25 @@ export function TrainingHubExperience() {
           <p className="mt-1 text-[15px] text-foreground/92">
             {programme.activePhase?.name ?? programme.name}
           </p>
+          {programme.activePhase?.duration_weeks != null ? (
+            <p className="mt-1 text-[13px] text-muted">
+              {programme.activePhase.duration_weeks} week
+              {programme.activePhase.duration_weeks === 1 ? "" : "s"}
+              {programme.activePhase.start_date && programme.activePhase.end_date
+                ? ` · ${programme.activePhase.start_date} → ${programme.activePhase.end_date}`
+                : ""}
+            </p>
+          ) : null}
           {programme.upcomingPhase ? (
             <p className="mt-1 text-[13px] text-muted">
               Next: {programme.upcomingPhase.name}
+              {programme.upcomingPhase.duration_weeks != null
+                ? ` (${programme.upcomingPhase.duration_weeks} weeks)`
+                : ""}
+              {programme.upcomingPhase.start_date &&
+              programme.upcomingPhase.end_date
+                ? ` · ${programme.upcomingPhase.start_date} → ${programme.upcomingPhase.end_date}`
+                : ""}
             </p>
           ) : null}
         </section>

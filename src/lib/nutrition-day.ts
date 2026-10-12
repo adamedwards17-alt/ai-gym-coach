@@ -200,7 +200,7 @@ export async function ensureNutritionTargetsForUser(
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select(
-      "age, sex, height_cm, weight_kg, primary_goal, activity_level, training_frequency",
+      "age, sex, height_cm, weight_kg, primary_goal, activity_level, training_frequency, cycle_commute_days_per_week, cycle_commute_minutes",
     )
     .eq("id", userId)
     .maybeSingle();
@@ -236,6 +236,14 @@ export async function ensureNutritionTargetsForUser(
     training_frequency:
       typeof profile.training_frequency === "string"
         ? profile.training_frequency
+        : null,
+    cycle_commute_days_per_week:
+      typeof profile.cycle_commute_days_per_week === "number"
+        ? profile.cycle_commute_days_per_week
+        : null,
+    cycle_commute_minutes:
+      typeof profile.cycle_commute_minutes === "number"
+        ? profile.cycle_commute_minutes
         : null,
   });
 

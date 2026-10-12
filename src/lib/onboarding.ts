@@ -64,7 +64,7 @@ export type OnboardingAnswers = {
 
 export type OnboardingDraft = Partial<OnboardingAnswers>;
 
-type Option = { id: string; label: string };
+type Option = { id: string; label: string; description?: string };
 
 export const primaryGoalOptions: Option[] = [
   { id: "muscle", label: "Build muscle" },
@@ -115,11 +115,35 @@ export const equipmentOptions: Option[] = [
 ];
 
 export const activityLevelOptions: Option[] = [
-  { id: "sedentary", label: "Mostly seated" },
-  { id: "light", label: "Lightly active" },
-  { id: "moderate", label: "Moderately active" },
-  { id: "active", label: "Active" },
-  { id: "very", label: "Very active" },
+  {
+    id: "sedentary",
+    label: "Mostly sitting",
+    description: "Desk-based day, limited walking outside planned exercise.",
+  },
+  {
+    id: "light",
+    label: "Lightly active",
+    description:
+      "Some walking and movement during the day, but mostly seated.",
+  },
+  {
+    id: "moderate",
+    label: "Moderately active",
+    description:
+      "Regular walking or movement throughout the day, plus a consistent exercise routine.",
+  },
+  {
+    id: "active",
+    label: "Active",
+    description:
+      "On your feet a lot most days, or a physically demanding job with regular training.",
+  },
+  {
+    id: "very",
+    label: "Very active",
+    description:
+      "A physically demanding job, high daily movement, or a substantial amount of regular training.",
+  },
 ];
 
 export const sleepOptions: Option[] = [

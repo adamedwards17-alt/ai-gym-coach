@@ -3,6 +3,8 @@
  * Gemini must never compute these values.
  */
 
+import { dailyCycleCommuteKcal } from "@/lib/activity-pattern";
+
 export const NUTRITION_METHODOLOGY_VERSION = "v1";
 
 export type NutritionSex = "male" | "female" | "nonbinary" | "unspecified";
@@ -30,6 +32,10 @@ export type NutritionProfileInput = {
   primary_goal: string | null;
   activity_level: string | null;
   training_frequency?: string | null;
+  /** Days/week of typical cycle commute (0–7). Averaged into TDEE — not treated as daily. */
+  cycle_commute_days_per_week?: number | null;
+  /** Typical one-way cycle commute minutes. */
+  cycle_commute_minutes?: number | null;
 };
 
 export type NutritionTargetsValues = {
@@ -196,7 +202,13 @@ export function calculateNutritionTargets(
     };
   }
 
-  const tdee = rmr * ACTIVITY_MULTIPLIER[activity];
+  // Activity multiplier covers typical daily movement (not each commute day).
+  // Optional cycle commute is averaged across the week so 2×/week ≠ every day.
+  const commuteKcal = dailyCycleCommuteKcal({
+    daysPerWeek: profile.cycle_commute_days_per_week,
+    minutesPerRide: profile.cycle_commute_minutes,
+  });
+  const tdee = rmr * ACTIVITY_MULTIPLIER[activity] + commuteKcal;
   let dailyCalories = roundToNearest(
     tdee * GOAL_CALORIE_FACTOR[goal],
     25,

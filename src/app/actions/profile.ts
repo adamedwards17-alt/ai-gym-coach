@@ -26,6 +26,9 @@ export type ProfileGoalsData = {
   heightCm: number | null;
   weightKg: number | null;
   activityLevel: string | null;
+  cycleCommuteDaysPerWeek: number | null;
+  cycleCommuteMinutes: number | null;
+  activityPatternNotes: string | null;
   trainingFrequency: string | null;
   primaryGoal: string | null;
   goalOwnWords: string | null;
@@ -71,6 +74,9 @@ export type UpdateProfileInput = {
   heightCm?: number | null;
   weightKg?: number | null;
   activityLevel?: string | null;
+  cycleCommuteDaysPerWeek?: number | null;
+  cycleCommuteMinutes?: number | null;
+  activityPatternNotes?: string | null;
   trainingFrequency?: string | null;
   primaryGoal?: string | null;
   goalOwnWords?: string | null;
@@ -99,7 +105,7 @@ async function loadProfileData(
     supabase
       .from("profiles")
       .select(
-        "display_name, age, sex, height_cm, weight_kg, activity_level, training_frequency, primary_goal, goal_in_own_words, goal_started_at, target_weight_kg, target_date, preferred_weight_unit, dietary_preferences, foods_avoided, allergies, daily_step_target, weekly_session_target",
+        "display_name, age, sex, height_cm, weight_kg, activity_level, cycle_commute_days_per_week, cycle_commute_minutes, activity_pattern_notes, training_frequency, primary_goal, goal_in_own_words, goal_started_at, target_weight_kg, target_date, preferred_weight_unit, dietary_preferences, foods_avoided, allergies, daily_step_target, weekly_session_target",
       )
       .eq("id", userId)
       .maybeSingle(),
@@ -126,6 +132,14 @@ async function loadProfileData(
     training_frequency:
       typeof profile.training_frequency === "string"
         ? profile.training_frequency
+        : null,
+    cycle_commute_days_per_week:
+      typeof profile.cycle_commute_days_per_week === "number"
+        ? profile.cycle_commute_days_per_week
+        : null,
+    cycle_commute_minutes:
+      typeof profile.cycle_commute_minutes === "number"
+        ? profile.cycle_commute_minutes
         : null,
   });
 
@@ -157,6 +171,18 @@ async function loadProfileData(
       activityLevel:
         typeof profile.activity_level === "string"
           ? profile.activity_level
+          : null,
+      cycleCommuteDaysPerWeek:
+        typeof profile.cycle_commute_days_per_week === "number"
+          ? profile.cycle_commute_days_per_week
+          : null,
+      cycleCommuteMinutes:
+        typeof profile.cycle_commute_minutes === "number"
+          ? profile.cycle_commute_minutes
+          : null,
+      activityPatternNotes:
+        typeof profile.activity_pattern_notes === "string"
+          ? profile.activity_pattern_notes
           : null,
       trainingFrequency:
         typeof profile.training_frequency === "string"
@@ -298,6 +324,38 @@ export async function updateProfileGoals(
         return { status: "error", message: "That activity level isn’t valid." };
       }
       patch.activity_level = input.activityLevel;
+    }
+    if (input.cycleCommuteDaysPerWeek !== undefined) {
+      const days = input.cycleCommuteDaysPerWeek;
+      if (
+        days != null &&
+        (!Number.isFinite(days) || days < 0 || days > 7)
+      ) {
+        return {
+          status: "error",
+          message: "Commute days must be between 0 and 7.",
+        };
+      }
+      patch.cycle_commute_days_per_week =
+        days == null ? null : Math.round(days);
+    }
+    if (input.cycleCommuteMinutes !== undefined) {
+      const minutes = input.cycleCommuteMinutes;
+      if (
+        minutes != null &&
+        (!Number.isFinite(minutes) || minutes < 1 || minutes > 180)
+      ) {
+        return {
+          status: "error",
+          message: "Commute minutes must be between 1 and 180.",
+        };
+      }
+      patch.cycle_commute_minutes =
+        minutes == null ? null : Math.round(minutes);
+    }
+    if (input.activityPatternNotes !== undefined) {
+      patch.activity_pattern_notes =
+        input.activityPatternNotes?.trim().slice(0, 400) || null;
     }
     if (input.trainingFrequency !== undefined) {
       if (

@@ -45,6 +45,11 @@ export type CoachProfileContext = {
   equipment: string[] | null;
   likes_dislikes: string | null;
   activity_level: string | null;
+  activity_level_label: string | null;
+  activity_level_description: string | null;
+  cycle_commute_days_per_week: number | null;
+  cycle_commute_minutes: number | null;
+  activity_pattern_notes: string | null;
   typical_sleep: string | null;
   lifestyle_constraints: string | null;
   dietary_preferences: string[] | null;
@@ -128,6 +133,7 @@ export type CoachChatProposalContext = {
   status: string;
   reason: string | null;
   changeCount: number;
+  kind: string;
 };
 
 export type CoachChatStepsContext = {
@@ -149,18 +155,22 @@ export type CoachChatNutritionContext = {
   estimationConfidence?: "high" | "medium" | "low" | null;
 };
 
-export type CoachNutritionTargetsContext = {
+export type CoachNutritionMacrosContext = {
   calories: number;
   proteinG: number;
   carbsG: number;
   fatG: number;
 };
 
+export type CoachNutritionTargetsContext = CoachNutritionMacrosContext & {
+  isManual: boolean;
+};
+
 export type CoachNutritionDayContext = {
   targets: CoachNutritionTargetsContext | null;
   targetsNote: string | null;
-  consumed: CoachNutritionTargetsContext;
-  remaining: CoachNutritionTargetsContext;
+  consumed: CoachNutritionMacrosContext;
+  remaining: CoachNutritionMacrosContext;
   eaten: CoachChatNutritionContext[];
   planned: CoachChatNutritionContext[];
 };
@@ -183,11 +193,24 @@ export type CoachStrengthPerformanceContext = {
   recommendation: string | null;
 };
 
+export type CoachProgrammePhaseContext = {
+  id: string;
+  slug: string;
+  name: string;
+  kind: string;
+  status: string;
+  durationWeeks: number | null;
+  startDate: string | null;
+  endDate: string | null;
+};
+
 export type CoachProgrammeContext = {
   programmeName: string | null;
   activePhaseName: string | null;
   activePhaseKind: string | null;
   upcomingPhaseName: string | null;
+  phases: CoachProgrammePhaseContext[];
+  weeksUntilTarget: number | null;
   recentStrength: CoachStrengthPerformanceContext[];
 };
 
