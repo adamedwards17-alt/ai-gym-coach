@@ -12,6 +12,13 @@ import {
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import {
+  COMMUTE_METHOD_OPTIONS,
+  COMMUTE_SITUATION_OPTIONS,
+  type CommuteMethodId,
+  type CommutePatternEntry,
+  type CommuteSituationId,
+} from "@/lib/activity-pattern";
+import {
   activityLevelOptions,
   dietOptions,
   optionLabel,
@@ -52,9 +59,14 @@ export function ProfileGoalsExperience() {
   const [heightCm, setHeightCm] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [activityLevel, setActivityLevel] = useState<string | null>(null);
-  const [cycleCommuteEnabled, setCycleCommuteEnabled] = useState(false);
-  const [cycleCommuteDays, setCycleCommuteDays] = useState("");
-  const [cycleCommuteMinutes, setCycleCommuteMinutes] = useState("");
+  const [commuteSituation, setCommuteSituation] =
+    useState<CommuteSituationId | null>(null);
+  const [selectedCommuteMethods, setSelectedCommuteMethods] = useState<
+    CommuteMethodId[]
+  >([]);
+  const [commuteDetails, setCommuteDetails] = useState<
+    Partial<Record<CommuteMethodId, { days: string; minutes: string }>>
+  >({});
   const [activityPatternNotes, setActivityPatternNotes] = useState("");
   const [trainingFrequency, setTrainingFrequency] = useState<string | null>(
     null,
@@ -82,20 +94,20 @@ export function ProfileGoalsExperience() {
     setHeightCm(profile.heightCm != null ? String(profile.heightCm) : "");
     setWeightKg(profile.weightKg != null ? String(profile.weightKg) : "");
     setActivityLevel(profile.activityLevel);
-    const hasCycle =
-      profile.cycleCommuteDaysPerWeek != null ||
-      profile.cycleCommuteMinutes != null;
-    setCycleCommuteEnabled(hasCycle);
-    setCycleCommuteDays(
-      profile.cycleCommuteDaysPerWeek != null
-        ? String(profile.cycleCommuteDaysPerWeek)
-        : "",
-    );
-    setCycleCommuteMinutes(
-      profile.cycleCommuteMinutes != null
-        ? String(profile.cycleCommuteMinutes)
-        : "",
-    );
+    setCommuteSituation(profile.commuteSituation);
+    const pattern = profile.commutePattern ?? [];
+    setSelectedCommuteMethods(pattern.map((entry) => entry.method));
+    const details: Partial<
+      Record<CommuteMethodId, { days: string; minutes: string }>
+    > = {};
+    for (const entry of pattern) {
+      details[entry.method] = {
+        days: String(entry.daysPerWeek),
+        minutes:
+          entry.minutesOneWay != null ? String(entry.minutesOneWay) : "",
+      };
+    }
+    setCommuteDetails(details);
     setActivityPatternNotes(profile.activityPatternNotes ?? "");
     setTrainingFrequency(profile.trainingFrequency);
     setPrimaryGoal(profile.primaryGoal);
@@ -145,14 +157,32 @@ export function ProfileGoalsExperience() {
       heightCm: heightCm ? Number(heightCm) : null,
       weightKg: weightKg ? Number(weightKg) : null,
       activityLevel,
-      cycleCommuteDaysPerWeek:
-        cycleCommuteEnabled && cycleCommuteDays
-          ? Number(cycleCommuteDays)
-          : null,
-      cycleCommuteMinutes:
-        cycleCommuteEnabled && cycleCommuteMinutes
-          ? Number(cycleCommuteMinutes)
-          : null,
+      commuteSituation,
+      commutePattern:
+        commuteSituation === "commutes"
+          ? selectedCommuteMethods
+              .map((method): CommutePatternEntry | null => {
+                const detail = commuteDetails[method];
+                const days = detail?.days ? Number(detail.days) : NaN;
+                if (!Number.isFinite(days) || days < 1 || days > 7) {
+                  return null;
+                }
+                const minutesRaw = detail?.minutes
+                  ? Number(detail.minutes)
+                  : null;
+                return {
+                  method,
+                  daysPerWeek: Math.round(days),
+                  minutesOneWay:
+                    minutesRaw != null &&
+                    Number.isFinite(minutesRaw) &&
+                    minutesRaw >= 1
+                      ? Math.round(minutesRaw)
+                      : null,
+                };
+              })
+              .filter((entry): entry is CommutePatternEntry => entry !== null)
+          : [],
       activityPatternNotes: activityPatternNotes.trim() || null,
       trainingFrequency,
       primaryGoal,
@@ -395,10 +425,12 @@ export function ProfileGoalsExperience() {
             />
           </div>
           <div>
-            <p className="mb-2 text-[13px] text-muted">Activity level</p>
+            <p className="mb-2 text-[13px] text-muted">
+              Typical day (outside workouts)
+            </p>
             <p className="mb-3 text-[12px] leading-5 text-muted">
-              Your typical day outside planned workouts — mostly sitting through
-              to very active. Training frequency is captured separately below.
+              How active your normal day is — separate from strength training,
+              HIIT or other planned sessions.
             </p>
             <OptionSelector
               name="activity"
@@ -407,62 +439,114 @@ export function ProfileGoalsExperience() {
               onChange={setActivityLevel}
             />
           </div>
+          <div>
+            <p className="mb-2 text-[13px] text-muted">Getting to work or study</p>
+            <p className="mb-3 text-[12px] leading-5 text-muted">
+              Optional. Skip this if it doesn’t apply — we won’t invent a
+              commute.
+            </p>
+            <OptionSelector
+              name="commute-situation"
+              options={COMMUTE_SITUATION_OPTIONS.map((option) => ({
+                id: option.id,
+                label: option.label,
+                description: option.description,
+              }))}
+              value={commuteSituation}
+              onChange={(id) => {
+                setCommuteSituation(id as CommuteSituationId);
+                if (id !== "commutes") {
+                  setSelectedCommuteMethods([]);
+                  setCommuteDetails({});
+                }
+              }}
+            />
+          </div>
+          {commuteSituation === "commutes" ? (
+            <div className="space-y-3">
+              <p className="text-[13px] text-muted">
+                How do you usually travel? Select all that apply.
+              </p>
+              <div className="flex flex-col gap-2">
+                {COMMUTE_METHOD_OPTIONS.map((method) => {
+                  const selected = selectedCommuteMethods.includes(method.id);
+                  return (
+                    <div key={method.id}>
+                      <label className="flex min-h-11 items-center gap-3 text-[14px] text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => {
+                            setSelectedCommuteMethods((current) => {
+                              if (current.includes(method.id)) {
+                                return current.filter((id) => id !== method.id);
+                              }
+                              return [...current, method.id];
+                            });
+                          }}
+                        />
+                        <span>{method.label}</span>
+                      </label>
+                      {selected ? (
+                        <div className="mt-2 mb-2 grid grid-cols-2 gap-2 pl-7">
+                          <Field label="Days/week">
+                            <input
+                              inputMode="numeric"
+                              value={commuteDetails[method.id]?.days ?? ""}
+                              onChange={(e) =>
+                                setCommuteDetails((current) => ({
+                                  ...current,
+                                  [method.id]: {
+                                    days: e.target.value,
+                                    minutes:
+                                      current[method.id]?.minutes ?? "",
+                                  },
+                                }))
+                              }
+                              placeholder="e.g. 2"
+                              className={inputClass}
+                            />
+                          </Field>
+                          <Field
+                            label={
+                              method.needsDuration
+                                ? "Minutes (one way)"
+                                : "Minutes (optional)"
+                            }
+                          >
+                            <input
+                              inputMode="numeric"
+                              value={commuteDetails[method.id]?.minutes ?? ""}
+                              onChange={(e) =>
+                                setCommuteDetails((current) => ({
+                                  ...current,
+                                  [method.id]: {
+                                    days: current[method.id]?.days ?? "",
+                                    minutes: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="one way"
+                              className={inputClass}
+                            />
+                          </Field>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           <Field label="Activity notes (optional)">
             <textarea
               value={activityPatternNotes}
               onChange={(e) => setActivityPatternNotes(e.target.value)}
               rows={2}
               className={inputClass}
-              placeholder="Anything that materially affects your daily movement"
+              placeholder="Anything else that affects daily movement"
             />
           </Field>
-          <div>
-            <label className="flex items-start gap-3 text-[14px] text-foreground">
-              <input
-                type="checkbox"
-                checked={cycleCommuteEnabled}
-                onChange={(e) => {
-                  const enabled = e.target.checked;
-                  setCycleCommuteEnabled(enabled);
-                  if (!enabled) {
-                    setCycleCommuteDays("");
-                    setCycleCommuteMinutes("");
-                  }
-                }}
-                className="mt-1"
-              />
-              <span>
-                I regularly cycle to work or study
-                <span className="mt-1 block text-[12px] leading-5 text-muted">
-                  Optional. Only turn this on if it applies — leave it off
-                  otherwise. Frequency is averaged across the week, not treated
-                  as every day.
-                </span>
-              </span>
-            </label>
-            {cycleCommuteEnabled ? (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <Field label="Days per week">
-                  <input
-                    inputMode="numeric"
-                    value={cycleCommuteDays}
-                    onChange={(e) => setCycleCommuteDays(e.target.value)}
-                    placeholder="e.g. 2"
-                    className={inputClass}
-                  />
-                </Field>
-                <Field label="Typical ride (minutes)">
-                  <input
-                    inputMode="numeric"
-                    value={cycleCommuteMinutes}
-                    onChange={(e) => setCycleCommuteMinutes(e.target.value)}
-                    placeholder="one way"
-                    className={inputClass}
-                  />
-                </Field>
-              </div>
-            ) : null}
-          </div>
         </div>
       </section>
 

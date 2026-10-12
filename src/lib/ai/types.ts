@@ -47,6 +47,12 @@ export type CoachProfileContext = {
   activity_level: string | null;
   activity_level_label: string | null;
   activity_level_description: string | null;
+  commute_situation: string | null;
+  commute_pattern: Array<{
+    method: string;
+    daysPerWeek: number;
+    minutesOneWay: number | null;
+  }>;
   cycle_commute_days_per_week: number | null;
   cycle_commute_minutes: number | null;
   activity_pattern_notes: string | null;

@@ -23,6 +23,7 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import { parseCommutePattern } from "@/lib/activity-pattern";
 import { buildGoalChangeCompanions } from "@/lib/ensure-goal-change-companions";
 import {
   MEAL_INSPIRATION_SEED_MESSAGE,
@@ -644,7 +645,7 @@ async function generateAndPersistReply(input: {
             supabase
               .from("profiles")
               .select(
-                "primary_goal, age, sex, height_cm, weight_kg, activity_level, training_frequency, cycle_commute_days_per_week, cycle_commute_minutes, target_date",
+                "primary_goal, age, sex, height_cm, weight_kg, activity_level, training_frequency, cycle_commute_days_per_week, cycle_commute_minutes, commute_pattern, target_date",
               )
               .eq("id", input.userId)
               .maybeSingle(),
@@ -702,6 +703,7 @@ async function generateAndPersistReply(input: {
               typeof profileRow?.cycle_commute_minutes === "number"
                 ? profileRow.cycle_commute_minutes
                 : null,
+            commute_pattern: parseCommutePattern(profileRow?.commute_pattern),
           },
           currentTargets: targetsRow
             ? {

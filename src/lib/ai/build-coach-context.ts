@@ -18,6 +18,7 @@ import type {
 import {
   activityLevelDescription,
   activityLevelLabel,
+  resolveCommutePattern,
 } from "@/lib/activity-pattern";
 import { resolveDailyStepTarget } from "@/lib/activity-steps";
 import {
@@ -63,6 +64,8 @@ const PROFILE_SELECT = [
   "equipment",
   "likes_dislikes",
   "activity_level",
+  "commute_situation",
+  "commute_pattern",
   "cycle_commute_days_per_week",
   "cycle_commute_minutes",
   "activity_pattern_notes",
@@ -130,6 +133,19 @@ function toProfileContext(
     activity_level_description: activityLevelDescription(
       typeof row.activity_level === "string" ? row.activity_level : null,
     ),
+    commute_situation:
+      typeof row.commute_situation === "string" ? row.commute_situation : null,
+    commute_pattern: resolveCommutePattern({
+      commutePattern: row.commute_pattern,
+      cycleCommuteDaysPerWeek:
+        typeof row.cycle_commute_days_per_week === "number"
+          ? row.cycle_commute_days_per_week
+          : null,
+      cycleCommuteMinutes:
+        typeof row.cycle_commute_minutes === "number"
+          ? row.cycle_commute_minutes
+          : null,
+    }),
     cycle_commute_days_per_week:
       typeof row.cycle_commute_days_per_week === "number"
         ? row.cycle_commute_days_per_week

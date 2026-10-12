@@ -43,7 +43,15 @@ export type ProgrammePhasesProposalPayload = {
 
 export type ActivityPatternProposalPayload = {
   activityLevel?: string | null;
+  commuteSituation?: string | null;
+  commutePattern?: Array<{
+    method: string;
+    daysPerWeek: number;
+    minutesOneWay?: number | null;
+  }> | null;
+  /** @deprecated Prefer commutePattern. */
   cycleCommuteDaysPerWeek?: number | null;
+  /** @deprecated Prefer commutePattern. */
   cycleCommuteMinutes?: number | null;
   activityPatternNotes?: string | null;
 };
@@ -249,6 +257,43 @@ export function parseActivityProposalPayload(
     record.activityLevel ?? record.activity_level,
     40,
   );
+  const commuteSituation = asOptionalString(
+    record.commuteSituation ?? record.commute_situation,
+    40,
+  );
+  const commutePatternRaw =
+    record.commutePattern ?? record.commute_pattern;
+  let commutePattern: ActivityPatternProposalPayload["commutePattern"] = null;
+  if (Array.isArray(commutePatternRaw)) {
+    const entries: NonNullable<
+      ActivityPatternProposalPayload["commutePattern"]
+    > = [];
+    for (const item of commutePatternRaw.slice(0, 8)) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        continue;
+      }
+      const entry = item as Record<string, unknown>;
+      const method = asOptionalString(entry.method, 40);
+      const daysPerWeek = asPositiveInt(
+        entry.daysPerWeek ?? entry.days_per_week,
+        1,
+        7,
+      );
+      if (!method || daysPerWeek == null) {
+        continue;
+      }
+      entries.push({
+        method,
+        daysPerWeek,
+        minutesOneWay: asPositiveInt(
+          entry.minutesOneWay ?? entry.minutes_one_way,
+          1,
+          180,
+        ),
+      });
+    }
+    commutePattern = entries;
+  }
   const cycleCommuteDaysPerWeek = asPositiveInt(
     record.cycleCommuteDaysPerWeek ?? record.cycle_commute_days_per_week,
     0,
@@ -265,6 +310,8 @@ export function parseActivityProposalPayload(
   );
   if (
     activityLevel == null &&
+    commuteSituation == null &&
+    (commutePattern == null || commutePattern.length === 0) &&
     cycleCommuteDaysPerWeek == null &&
     cycleCommuteMinutes == null &&
     activityPatternNotes == null
@@ -273,6 +320,8 @@ export function parseActivityProposalPayload(
   }
   return {
     activityLevel,
+    commuteSituation,
+    commutePattern,
     cycleCommuteDaysPerWeek,
     cycleCommuteMinutes,
     activityPatternNotes,
@@ -412,17 +461,31 @@ export function describeCoachChangeProposal(
     const p = proposal.payload as ActivityPatternProposalPayload;
     const lines: string[] = [];
     if (p.activityLevel) {
-      lines.push(`Activity level → ${p.activityLevel}`);
+      lines.push(`Daily movement → ${p.activityLevel}`);
     }
-    if (p.cycleCommuteDaysPerWeek != null) {
+    if (p.commuteSituation) {
+      lines.push(`Commute situation → ${p.commuteSituation}`);
+    }
+    if (p.commutePattern && p.commutePattern.length > 0) {
+      for (const entry of p.commutePattern) {
+        lines.push(
+          `${entry.method}: ${entry.daysPerWeek} day${
+            entry.daysPerWeek === 1 ? "" : "s"
+          }/week` +
+            (entry.minutesOneWay != null
+              ? ` (~${entry.minutesOneWay} min)`
+              : ""),
+        );
+      }
+    } else if (p.cycleCommuteDaysPerWeek != null) {
       lines.push(
         `Cycle commute → ${p.cycleCommuteDaysPerWeek} day${
           p.cycleCommuteDaysPerWeek === 1 ? "" : "s"
         }/week`,
       );
-    }
-    if (p.cycleCommuteMinutes != null) {
-      lines.push(`Typical ride → ~${p.cycleCommuteMinutes} min`);
+      if (p.cycleCommuteMinutes != null) {
+        lines.push(`Typical ride → ~${p.cycleCommuteMinutes} min`);
+      }
     }
     if (p.activityPatternNotes) {
       lines.push(p.activityPatternNotes);

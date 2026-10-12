@@ -402,15 +402,61 @@ async function applyActivityProposal(
   payload: ActivityPatternProposalPayload,
 ): Promise<string | null> {
   const supabase = await createClient();
+  const {
+    isCommuteSituationId,
+    legacyCycleFieldsFromPattern,
+    parseCommutePattern,
+  } = await import("@/lib/activity-pattern");
   const patch: Record<string, unknown> = {};
   if (payload.activityLevel) {
     patch.activity_level = payload.activityLevel;
   }
-  if (payload.cycleCommuteDaysPerWeek != null) {
-    patch.cycle_commute_days_per_week = payload.cycleCommuteDaysPerWeek;
+  if (payload.commuteSituation && isCommuteSituationId(payload.commuteSituation)) {
+    patch.commute_situation = payload.commuteSituation;
+    if (
+      payload.commuteSituation === "work_from_home" ||
+      payload.commuteSituation === "no_regular_commute"
+    ) {
+      patch.commute_pattern = [];
+      patch.cycle_commute_days_per_week = null;
+      patch.cycle_commute_minutes = null;
+    }
   }
-  if (payload.cycleCommuteMinutes != null) {
-    patch.cycle_commute_minutes = payload.cycleCommuteMinutes;
+  if (
+    payload.commutePattern &&
+    payload.commuteSituation !== "work_from_home" &&
+    payload.commuteSituation !== "no_regular_commute"
+  ) {
+    const pattern = parseCommutePattern(payload.commutePattern);
+    patch.commute_pattern = pattern;
+    const legacy = legacyCycleFieldsFromPattern(pattern);
+    patch.cycle_commute_days_per_week = legacy.cycleCommuteDaysPerWeek;
+    patch.cycle_commute_minutes = legacy.cycleCommuteMinutes;
+    if (!payload.commuteSituation && pattern.length > 0) {
+      patch.commute_situation = "commutes";
+    }
+  } else if (
+    payload.cycleCommuteDaysPerWeek != null ||
+    payload.cycleCommuteMinutes != null
+  ) {
+    const days = payload.cycleCommuteDaysPerWeek;
+    const pattern =
+      days != null && days > 0
+        ? [
+            {
+              method: "cycling" as const,
+              daysPerWeek: days,
+              minutesOneWay: payload.cycleCommuteMinutes ?? null,
+            },
+          ]
+        : [];
+    patch.commute_pattern = pattern;
+    patch.cycle_commute_days_per_week =
+      days != null && days > 0 ? days : null;
+    patch.cycle_commute_minutes = payload.cycleCommuteMinutes ?? null;
+    if (pattern.length > 0) {
+      patch.commute_situation = "commutes";
+    }
   }
   if (payload.activityPatternNotes != null) {
     patch.activity_pattern_notes = payload.activityPatternNotes;

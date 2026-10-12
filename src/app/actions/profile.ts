@@ -1,6 +1,14 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/auth/session";
+import {
+  isCommuteSituationId,
+  legacyCycleFieldsFromPattern,
+  parseCommutePattern,
+  resolveCommutePattern,
+  type CommutePatternEntry,
+  type CommuteSituationId,
+} from "@/lib/activity-pattern";
 import { evaluateGoalChangeWarning } from "@/lib/goal-history";
 import { getLocalLoggedDate, isValidLoggedDate } from "@/lib/nutrition";
 import {
@@ -26,6 +34,9 @@ export type ProfileGoalsData = {
   heightCm: number | null;
   weightKg: number | null;
   activityLevel: string | null;
+  commuteSituation: CommuteSituationId | null;
+  commutePattern: CommutePatternEntry[];
+  /** Legacy cycling fields — still returned for older clients / sync. */
   cycleCommuteDaysPerWeek: number | null;
   cycleCommuteMinutes: number | null;
   activityPatternNotes: string | null;
@@ -74,6 +85,8 @@ export type UpdateProfileInput = {
   heightCm?: number | null;
   weightKg?: number | null;
   activityLevel?: string | null;
+  commuteSituation?: CommuteSituationId | null;
+  commutePattern?: CommutePatternEntry[];
   cycleCommuteDaysPerWeek?: number | null;
   cycleCommuteMinutes?: number | null;
   activityPatternNotes?: string | null;
@@ -105,7 +118,7 @@ async function loadProfileData(
     supabase
       .from("profiles")
       .select(
-        "display_name, age, sex, height_cm, weight_kg, activity_level, cycle_commute_days_per_week, cycle_commute_minutes, activity_pattern_notes, training_frequency, primary_goal, goal_in_own_words, goal_started_at, target_weight_kg, target_date, preferred_weight_unit, dietary_preferences, foods_avoided, allergies, daily_step_target, weekly_session_target",
+        "display_name, age, sex, height_cm, weight_kg, activity_level, commute_situation, commute_pattern, cycle_commute_days_per_week, cycle_commute_minutes, activity_pattern_notes, training_frequency, primary_goal, goal_in_own_words, goal_started_at, target_weight_kg, target_date, preferred_weight_unit, dietary_preferences, foods_avoided, allergies, daily_step_target, weekly_session_target",
       )
       .eq("id", userId)
       .maybeSingle(),
@@ -141,6 +154,7 @@ async function loadProfileData(
       typeof profile.cycle_commute_minutes === "number"
         ? profile.cycle_commute_minutes
         : null,
+    commute_pattern: parseCommutePattern(profile.commute_pattern),
   });
 
   const proposed =
@@ -152,6 +166,19 @@ async function loadProfileData(
           fatG: calculated.targets.fatG,
         }
       : null;
+
+  const commutePattern = resolveCommutePattern({
+    commutePattern: profile.commute_pattern,
+    cycleCommuteDaysPerWeek:
+      typeof profile.cycle_commute_days_per_week === "number"
+        ? profile.cycle_commute_days_per_week
+        : null,
+    cycleCommuteMinutes:
+      typeof profile.cycle_commute_minutes === "number"
+        ? profile.cycle_commute_minutes
+        : null,
+  });
+  const legacyCycle = legacyCycleFieldsFromPattern(commutePattern);
 
   return {
     status: "ok",
@@ -172,14 +199,22 @@ async function loadProfileData(
         typeof profile.activity_level === "string"
           ? profile.activity_level
           : null,
+      commuteSituation: isCommuteSituationId(profile.commute_situation)
+        ? profile.commute_situation
+        : commutePattern.length > 0
+          ? "commutes"
+          : null,
+      commutePattern,
       cycleCommuteDaysPerWeek:
-        typeof profile.cycle_commute_days_per_week === "number"
+        legacyCycle.cycleCommuteDaysPerWeek ??
+        (typeof profile.cycle_commute_days_per_week === "number"
           ? profile.cycle_commute_days_per_week
-          : null,
+          : null),
       cycleCommuteMinutes:
-        typeof profile.cycle_commute_minutes === "number"
+        legacyCycle.cycleCommuteMinutes ??
+        (typeof profile.cycle_commute_minutes === "number"
           ? profile.cycle_commute_minutes
-          : null,
+          : null),
       activityPatternNotes:
         typeof profile.activity_pattern_notes === "string"
           ? profile.activity_pattern_notes
@@ -325,8 +360,47 @@ export async function updateProfileGoals(
       }
       patch.activity_level = input.activityLevel;
     }
-    if (input.cycleCommuteDaysPerWeek !== undefined) {
+    if (input.commuteSituation !== undefined) {
+      if (
+        input.commuteSituation != null &&
+        !isCommuteSituationId(input.commuteSituation)
+      ) {
+        return {
+          status: "error",
+          message: "That commute situation isn’t valid.",
+        };
+      }
+      patch.commute_situation = input.commuteSituation;
+      if (
+        input.commuteSituation === "work_from_home" ||
+        input.commuteSituation === "no_regular_commute"
+      ) {
+        patch.commute_pattern = [];
+        patch.cycle_commute_days_per_week = null;
+        patch.cycle_commute_minutes = null;
+      }
+    }
+    if (
+      input.commutePattern !== undefined &&
+      input.commuteSituation !== "work_from_home" &&
+      input.commuteSituation !== "no_regular_commute"
+    ) {
+      const pattern = parseCommutePattern(input.commutePattern);
+      patch.commute_pattern = pattern;
+      const legacy = legacyCycleFieldsFromPattern(pattern);
+      patch.cycle_commute_days_per_week = legacy.cycleCommuteDaysPerWeek;
+      patch.cycle_commute_minutes = legacy.cycleCommuteMinutes;
+      if (input.commuteSituation === undefined && pattern.length > 0) {
+        patch.commute_situation = "commutes";
+      }
+    } else if (
+      input.commutePattern === undefined &&
+      (input.cycleCommuteDaysPerWeek !== undefined ||
+        input.cycleCommuteMinutes !== undefined)
+    ) {
+      // Legacy path: sync into commute_pattern when only cycle fields are sent.
       const days = input.cycleCommuteDaysPerWeek;
+      const minutes = input.cycleCommuteMinutes;
       if (
         days != null &&
         (!Number.isFinite(days) || days < 0 || days > 7)
@@ -336,11 +410,6 @@ export async function updateProfileGoals(
           message: "Commute days must be between 0 and 7.",
         };
       }
-      patch.cycle_commute_days_per_week =
-        days == null ? null : Math.round(days);
-    }
-    if (input.cycleCommuteMinutes !== undefined) {
-      const minutes = input.cycleCommuteMinutes;
       if (
         minutes != null &&
         (!Number.isFinite(minutes) || minutes < 1 || minutes > 180)
@@ -350,8 +419,25 @@ export async function updateProfileGoals(
           message: "Commute minutes must be between 1 and 180.",
         };
       }
+      const pattern =
+        days != null && days > 0
+          ? [
+              {
+                method: "cycling" as const,
+                daysPerWeek: Math.round(days),
+                minutesOneWay:
+                  minutes == null ? null : Math.round(minutes),
+              },
+            ]
+          : [];
+      patch.commute_pattern = pattern;
+      patch.cycle_commute_days_per_week =
+        days == null || days <= 0 ? null : Math.round(days);
       patch.cycle_commute_minutes =
         minutes == null ? null : Math.round(minutes);
+      if (pattern.length > 0) {
+        patch.commute_situation = "commutes";
+      }
     }
     if (input.activityPatternNotes !== undefined) {
       patch.activity_pattern_notes =

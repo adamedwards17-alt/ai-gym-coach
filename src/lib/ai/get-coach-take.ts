@@ -102,6 +102,8 @@ function toProfileContext(row: ProfileRow): CoachProfileContext {
     activity_level: row.activity_level,
     activity_level_label: null,
     activity_level_description: null,
+    commute_situation: null,
+    commute_pattern: [],
     cycle_commute_days_per_week: null,
     cycle_commute_minutes: null,
     activity_pattern_notes: null,

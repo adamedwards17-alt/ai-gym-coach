@@ -3,7 +3,11 @@
  * Gemini must never compute these values.
  */
 
-import { dailyCycleCommuteKcal } from "@/lib/activity-pattern";
+import {
+  dailyCommutePatternKcal,
+  resolveCommutePattern,
+  type CommutePatternEntry,
+} from "@/lib/activity-pattern";
 
 export const NUTRITION_METHODOLOGY_VERSION = "v1";
 
@@ -32,9 +36,11 @@ export type NutritionProfileInput = {
   primary_goal: string | null;
   activity_level: string | null;
   training_frequency?: string | null;
-  /** Days/week of typical cycle commute (0–7). Averaged into TDEE — not treated as daily. */
+  /** Structured commute/transport entries. Preferred over legacy cycle fields. */
+  commute_pattern?: CommutePatternEntry[] | null;
+  /** @deprecated Prefer commute_pattern. Kept for existing users. */
   cycle_commute_days_per_week?: number | null;
-  /** Typical one-way cycle commute minutes. */
+  /** @deprecated Prefer commute_pattern. Kept for existing users. */
   cycle_commute_minutes?: number | null;
 };
 
@@ -202,12 +208,16 @@ export function calculateNutritionTargets(
     };
   }
 
-  // Activity multiplier covers typical daily movement (not each commute day).
-  // Optional cycle commute is averaged across the week so 2×/week ≠ every day.
-  const commuteKcal = dailyCycleCommuteKcal({
-    daysPerWeek: profile.cycle_commute_days_per_week,
-    minutesPerRide: profile.cycle_commute_minutes,
-  });
+  // Activity multiplier = daily movement outside planned workouts.
+  // Optional commute methods are averaged across the week (2×/week ≠ every day)
+  // and use method-specific rates so driving ≠ cycling.
+  const commuteKcal = dailyCommutePatternKcal(
+    resolveCommutePattern({
+      commutePattern: profile.commute_pattern,
+      cycleCommuteDaysPerWeek: profile.cycle_commute_days_per_week,
+      cycleCommuteMinutes: profile.cycle_commute_minutes,
+    }),
+  );
   const tdee = rmr * ACTIVITY_MULTIPLIER[activity] + commuteKcal;
   let dailyCalories = roundToNearest(
     tdee * GOAL_CALORIE_FACTOR[goal],

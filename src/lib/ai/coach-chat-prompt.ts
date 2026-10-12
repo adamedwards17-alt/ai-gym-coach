@@ -60,9 +60,11 @@ Coordinated goal-change workflow (mandatory):
 - goal_proposal may include durationWeeks (e.g. 8) and/or targetDate and primaryGoal (use id values such as recomp, lean, muscle, maintain).
 
 Activity assumptions:
-- Use stored activity_level as the main lifestyle input. Only use cycle commute days/minutes when they are recorded — never invent a commute routine, and never treat unset commute fields as “zero cycling for everyone”.
-- If the user mentions cycling to work (or another material extra activity) and it is not stored, ask briefly and emit activity_proposal only for that detail.
-- Do not ask every user about cycling to work.
+- Use stored activity_level as daily movement outside planned workouts.
+- Use commute_situation and commute_pattern when recorded (walking, cycling, e-scooter, public transport, driving, other). Different methods are not equally active — do not treat driving like cycling.
+- Never invent a commute. Unset commute fields mean “unknown / not applicable”, not “zero cycling for everyone”.
+- If the user mentions a material commute or routine activity that is not stored, ask briefly and emit activity_proposal.
+- Do not ask every user about commuting; only when it materially affects advice.
 
 Plain-English coaching:
 - When you first introduce a technical term in a decision (recomp, deficit, maintenance, progressive overload, RIR, etc.), briefly explain it in accessible language before asking the user to choose.
@@ -101,7 +103,7 @@ Rules for proposals (all optional; null when not proposing a durable change):
 - plan_proposal: { "reason": string, "changes": [ { "entry_id", "action": "move"|"skip"|"shorten"|"replace"|"leave_skipped", ... } ] }
 - nutrition_proposal: { "reason": string, "dailyCalories": number, "proteinG": number, "carbsG": number, "fatG": number, "setManual": true }
 - programme_proposal: { "reason": string, "phases": [ { "phaseId" or "slug", "durationWeeks": number, "name"?: string, "status"?: "active"|"upcoming" } ], "anchorDate"?: "YYYY-MM-DD", "programmeName"?: string }
-- activity_proposal: { "reason": string, "activityLevel"?: string, "cycleCommuteDaysPerWeek"?: number, "cycleCommuteMinutes"?: number, "activityPatternNotes"?: string }
+- activity_proposal: { "reason": string, "activityLevel"?: string, "commuteSituation"?: "work_from_home"|"no_regular_commute"|"commutes", "commutePattern"?: [ { "method": "walking"|"cycling"|"e_scooter"|"public_transport"|"driving"|"other", "daysPerWeek": number, "minutesOneWay"?: number } ], "activityPatternNotes"?: string }
 - goal_proposal: { "reason": string, "primaryGoal"?: string, "targetDate"?: "YYYY-MM-DD", "durationWeeks"?: number, "targetWeightKg"?: number, "goalInOwnWords"?: string }
 - A suggestion is not an agreement. Emit a proposal when you want a durable change; the app shows Accept / Keep and may also apply on a clear "yes".
 - Do not emit proposals for hypothetical discussion the user has not been asked to confirm.
@@ -289,15 +291,21 @@ User profile:
 - Training location: ${formatValue(profile.training_location)}
 - Equipment: ${formatList(profile.equipment)}
 - Likes / dislikes: ${formatValue(profile.likes_dislikes)}
-- Activity level: ${formatValue(profile.activity_level_label ?? profile.activity_level)}${profile.activity_level_description ? ` — ${profile.activity_level_description}` : ""}
+- Daily movement (outside planned workouts): ${formatValue(profile.activity_level_label ?? profile.activity_level)}${profile.activity_level_description ? ` — ${profile.activity_level_description}` : ""}
+- Commute situation: ${formatValue(profile.commute_situation)}
 ${
-  profile.cycle_commute_days_per_week != null
-    ? `- Optional cycle commute (only because recorded): ${profile.cycle_commute_days_per_week} day(s)/week${
-        profile.cycle_commute_minutes != null
-          ? `, ~${profile.cycle_commute_minutes} min/ride`
-          : ""
-      } — do not treat as daily unless 7\n`
-    : "- Optional cycle commute: not recorded (do not invent one; do not ask unless the user mentions commuting by bike)\n"
+  profile.commute_pattern.length > 0
+    ? `- Commute pattern (recorded only):\n${profile.commute_pattern
+        .map(
+          (entry) =>
+            `  - ${entry.method}: ${entry.daysPerWeek} day(s)/week${
+              entry.minutesOneWay != null
+                ? `, ~${entry.minutesOneWay} min one way`
+                : ""
+            }`,
+        )
+        .join("\n")}\n`
+    : "- Commute pattern: none recorded (do not invent; only ask if it materially affects calories)\n"
 }- Activity pattern notes: ${formatValue(profile.activity_pattern_notes)}
 - Typical sleep: ${formatValue(profile.typical_sleep)}
 - Lifestyle constraints: ${formatValue(profile.lifestyle_constraints)}

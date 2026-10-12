@@ -117,32 +117,33 @@ export const equipmentOptions: Option[] = [
 export const activityLevelOptions: Option[] = [
   {
     id: "sedentary",
-    label: "Mostly sitting",
-    description: "Desk-based day, limited walking outside planned exercise.",
+    label: "Mostly sedentary",
+    description:
+      "Mostly sitting during the day, limited walking outside planned exercise.",
   },
   {
     id: "light",
-    label: "Lightly active",
+    label: "Mixed sitting and movement",
     description:
-      "Some walking and movement during the day, but mostly seated.",
+      "A mix of sitting and walking or light movement through the day.",
   },
   {
     id: "moderate",
-    label: "Moderately active",
+    label: "Mostly on your feet",
     description:
-      "Regular walking or movement throughout the day, plus a consistent exercise routine.",
+      "Regularly on your feet or walking during the day, outside gym sessions.",
   },
   {
     id: "active",
-    label: "Active",
+    label: "Physically demanding",
     description:
-      "On your feet a lot most days, or a physically demanding job with regular training.",
+      "A job or day that keeps you moving a lot, separate from planned workouts.",
   },
   {
     id: "very",
-    label: "Very active",
+    label: "Very physically demanding",
     description:
-      "A physically demanding job, high daily movement, or a substantial amount of regular training.",
+      "High daily physical work or movement most days, beyond planned training.",
   },
 ];
 

@@ -1,3 +1,4 @@
+import { parseCommutePattern } from "@/lib/activity-pattern";
 import {
   addMacroTotals,
   calculateNutritionTargets,
@@ -200,7 +201,7 @@ export async function ensureNutritionTargetsForUser(
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select(
-      "age, sex, height_cm, weight_kg, primary_goal, activity_level, training_frequency, cycle_commute_days_per_week, cycle_commute_minutes",
+      "age, sex, height_cm, weight_kg, primary_goal, activity_level, training_frequency, cycle_commute_days_per_week, cycle_commute_minutes, commute_pattern",
     )
     .eq("id", userId)
     .maybeSingle();
@@ -245,6 +246,7 @@ export async function ensureNutritionTargetsForUser(
       typeof profile.cycle_commute_minutes === "number"
         ? profile.cycle_commute_minutes
         : null,
+    commute_pattern: parseCommutePattern(profile.commute_pattern),
   });
 
   if (calculated.status === "incomplete") {
