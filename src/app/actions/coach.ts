@@ -23,6 +23,7 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import { buildGoalChangeCompanions } from "@/lib/ensure-goal-change-companions";
 import {
   MEAL_INSPIRATION_SEED_MESSAGE,
   MEAL_INSPIRATION_TITLE,
@@ -635,6 +636,135 @@ async function generateAndPersistReply(input: {
           "[coach] Goal proposal save failed:",
           goalResult.message,
         );
+      } else {
+        // Coordinated review: a goal change must assess nutrition even if the
+        // model only proposed training/goal updates.
+        const [{ data: profileRow }, { data: targetsRow }, { data: phaseRows }] =
+          await Promise.all([
+            supabase
+              .from("profiles")
+              .select(
+                "primary_goal, age, sex, height_cm, weight_kg, activity_level, training_frequency, cycle_commute_days_per_week, cycle_commute_minutes, target_date",
+              )
+              .eq("id", input.userId)
+              .maybeSingle(),
+            supabase
+              .from("nutrition_targets")
+              .select(
+                "daily_calories, protein_g, carbs_g, fat_g, is_manual",
+              )
+              .eq("user_id", input.userId)
+              .maybeSingle(),
+            supabase
+              .from("training_phases")
+              .select("name, kind, status, duration_weeks")
+              .eq("user_id", input.userId)
+              .in("status", ["active", "upcoming"])
+              .order("sort_order", { ascending: true })
+              .limit(6),
+          ]);
+
+        const companions = buildGoalChangeCompanions({
+          currentGoal:
+            typeof profileRow?.primary_goal === "string"
+              ? profileRow.primary_goal
+              : null,
+          proposedGoalPayload: parsed.goalProposal.payload,
+          todayIso: input.localDate,
+          profile: {
+            age: typeof profileRow?.age === "number" ? profileRow.age : null,
+            sex: typeof profileRow?.sex === "string" ? profileRow.sex : null,
+            height_cm:
+              typeof profileRow?.height_cm === "number"
+                ? Number(profileRow.height_cm)
+                : null,
+            weight_kg:
+              typeof profileRow?.weight_kg === "number"
+                ? Number(profileRow.weight_kg)
+                : null,
+            primary_goal:
+              typeof profileRow?.primary_goal === "string"
+                ? profileRow.primary_goal
+                : null,
+            activity_level:
+              typeof profileRow?.activity_level === "string"
+                ? profileRow.activity_level
+                : null,
+            training_frequency:
+              typeof profileRow?.training_frequency === "string"
+                ? profileRow.training_frequency
+                : null,
+            cycle_commute_days_per_week:
+              typeof profileRow?.cycle_commute_days_per_week === "number"
+                ? profileRow.cycle_commute_days_per_week
+                : null,
+            cycle_commute_minutes:
+              typeof profileRow?.cycle_commute_minutes === "number"
+                ? profileRow.cycle_commute_minutes
+                : null,
+          },
+          currentTargets: targetsRow
+            ? {
+                dailyCalories: Number(targetsRow.daily_calories),
+                proteinG: Number(targetsRow.protein_g),
+                carbsG: Number(targetsRow.carbs_g),
+                fatG: Number(targetsRow.fat_g),
+                isManual: targetsRow.is_manual === true,
+              }
+            : null,
+          phases: (phaseRows ?? []).map((row) => {
+            const r = row as Record<string, unknown>;
+            return {
+              name: typeof r.name === "string" ? r.name : null,
+              kind: typeof r.kind === "string" ? r.kind : null,
+              status: typeof r.status === "string" ? r.status : null,
+              durationWeeks:
+                typeof r.duration_weeks === "number" ? r.duration_weeks : 0,
+            };
+          }),
+          nutritionProposalAlreadyPresent: !!parsed.nutritionProposal,
+        });
+
+        if (companions.nutritionCompanion) {
+          const nutritionCompanionResult = await createCoachChangeProposal({
+            conversationId: input.conversationId,
+            kind: "nutrition_targets",
+            reason: companions.nutritionCompanion.reason,
+            payload: companions.nutritionCompanion.payload,
+            idempotencyKey: `msg:${assistantRow.id}:nutrition-companion`,
+          });
+          if (nutritionCompanionResult.status === "error") {
+            console.error(
+              "[coach] Nutrition companion proposal failed:",
+              nutritionCompanionResult.message,
+            );
+          }
+        }
+
+        if (companions.review) {
+          const summary = [
+            "Goal-change plan review:",
+            ...companions.review.summaryLines,
+            companions.keepNutritionNote
+              ? `Nutrition kept: ${companions.keepNutritionNote}`
+              : companions.nutritionCompanion
+                ? "Nutrition change proposed for confirmation."
+                : null,
+            `Training: ${companions.review.training.reason}`,
+          ]
+            .filter((line): line is string => !!line)
+            .join(" ")
+            .slice(0, 280);
+
+          await supabase.from("coach_events").insert({
+            user_id: input.userId,
+            event_date: input.localDate,
+            event_type: "goal_note",
+            summary,
+            source_conversation_id: input.conversationId,
+            active: true,
+          });
+        }
       }
     }
 

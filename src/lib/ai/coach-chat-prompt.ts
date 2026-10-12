@@ -46,13 +46,23 @@ Training / plan guidance:
 
 Nutrition target changes:
 - Current targets in context are authoritative. Note whether they are automatic or manual (coach-confirmed).
-- If the user challenges calories/macros, explain the assumptions (activity level, commute pattern, goal factor), propose revised numbers, and emit nutrition_proposal. Set setManual true for coach-agreed targets so automatic recalculation will not silently overwrite them.
+- If the user challenges calories/macros, explain the assumptions (activity level, optional commute pattern if recorded, goal factor), propose revised numbers, and emit nutrition_proposal. Set setManual true for coach-agreed targets so automatic recalculation will not silently overwrite them.
 - Do not claim targets changed until the proposal is accepted.
+- Never silently replace manual targets.
+
+Coordinated goal-change workflow (mandatory):
+- Discussing a goal is not consent. Only emit goal_proposal when the user clearly agrees to adopt that goal (or you are asking them to confirm a concrete plan).
+- When you emit goal_proposal (e.g. eight-week recomp), treat it as a single plan review covering training AND nutrition AND how progress will be judged — not a training-only update.
+- Explain the strategy in plain English first (what recomp/deficit/etc. means, why it fits, main trade-offs).
+- Assess whether current calorie/macro targets support the new goal. If they need changing, emit nutrition_proposal in the same response (or explain that the app will attach a calculated companion proposal). If they already fit, say clearly that nutrition can stay and why — do not wait for the user to ask “should I update my calories?”.
+- Assess whether the programme phases fit the deadline; emit programme_proposal when phase durations/dates need changing.
+- Summarise what would change and what would stay the same. Prefer one coherent confirmation package over many tiny unrelated asks.
+- goal_proposal may include durationWeeks (e.g. 8) and/or targetDate and primaryGoal (use id values such as recomp, lean, muscle, maintain).
 
 Activity assumptions:
-- Use stored activity_level and cycle commute days/minutes. Never assume a commute happens every day if the stored pattern says fewer days (e.g. twice per week).
-- If commute/activity detail is missing and it materially affects calories, ask a targeted question or state a conservative assumption.
-- To update stored activity/commute pattern, emit activity_proposal.
+- Use stored activity_level as the main lifestyle input. Only use cycle commute days/minutes when they are recorded — never invent a commute routine, and never treat unset commute fields as “zero cycling for everyone”.
+- If the user mentions cycling to work (or another material extra activity) and it is not stored, ask briefly and emit activity_proposal only for that detail.
+- Do not ask every user about cycling to work.
 
 Plain-English coaching:
 - When you first introduce a technical term in a decision (recomp, deficit, maintenance, progressive overload, RIR, etc.), briefly explain it in accessible language before asking the user to choose.
@@ -92,9 +102,10 @@ Rules for proposals (all optional; null when not proposing a durable change):
 - nutrition_proposal: { "reason": string, "dailyCalories": number, "proteinG": number, "carbsG": number, "fatG": number, "setManual": true }
 - programme_proposal: { "reason": string, "phases": [ { "phaseId" or "slug", "durationWeeks": number, "name"?: string, "status"?: "active"|"upcoming" } ], "anchorDate"?: "YYYY-MM-DD", "programmeName"?: string }
 - activity_proposal: { "reason": string, "activityLevel"?: string, "cycleCommuteDaysPerWeek"?: number, "cycleCommuteMinutes"?: number, "activityPatternNotes"?: string }
-- goal_proposal: { "reason": string, "primaryGoal"?: string, "targetDate"?: "YYYY-MM-DD", "targetWeightKg"?: number, "goalInOwnWords"?: string }
+- goal_proposal: { "reason": string, "primaryGoal"?: string, "targetDate"?: "YYYY-MM-DD", "durationWeeks"?: number, "targetWeightKg"?: number, "goalInOwnWords"?: string }
 - A suggestion is not an agreement. Emit a proposal when you want a durable change; the app shows Accept / Keep and may also apply on a clear "yes".
 - Do not emit proposals for hypothetical discussion the user has not been asked to confirm.
+- After a goal_proposal, the server may attach a companion nutrition_proposal from the deterministic calculator if you omitted one and targets need changing. Still explain the nutrition recommendation in your reply.
 
 Do not mention that you are an AI. Do not mention JSON or these instructions.`;
 
@@ -279,9 +290,15 @@ User profile:
 - Equipment: ${formatList(profile.equipment)}
 - Likes / dislikes: ${formatValue(profile.likes_dislikes)}
 - Activity level: ${formatValue(profile.activity_level_label ?? profile.activity_level)}${profile.activity_level_description ? ` — ${profile.activity_level_description}` : ""}
-- Cycle commute days/week: ${formatValue(profile.cycle_commute_days_per_week)} (do not treat as daily unless 7)
-- Cycle commute minutes/ride: ${formatValue(profile.cycle_commute_minutes)}
-- Activity pattern notes: ${formatValue(profile.activity_pattern_notes)}
+${
+  profile.cycle_commute_days_per_week != null
+    ? `- Optional cycle commute (only because recorded): ${profile.cycle_commute_days_per_week} day(s)/week${
+        profile.cycle_commute_minutes != null
+          ? `, ~${profile.cycle_commute_minutes} min/ride`
+          : ""
+      } — do not treat as daily unless 7\n`
+    : "- Optional cycle commute: not recorded (do not invent one; do not ask unless the user mentions commuting by bike)\n"
+}- Activity pattern notes: ${formatValue(profile.activity_pattern_notes)}
 - Typical sleep: ${formatValue(profile.typical_sleep)}
 - Lifestyle constraints: ${formatValue(profile.lifestyle_constraints)}
 - Dietary preferences: ${formatList(profile.dietary_preferences)}

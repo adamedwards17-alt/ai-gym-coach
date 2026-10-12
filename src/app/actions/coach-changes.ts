@@ -454,12 +454,30 @@ async function applyGoalProposal(
   payload: GoalProposalPayload,
 ): Promise<string | null> {
   const supabase = await createClient();
+  const today = getLocalLoggedDate();
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select(
+      "primary_goal, goal_in_own_words, target_weight_kg, target_date, goal_started_at",
+    )
+    .eq("id", userId)
+    .maybeSingle();
+
   const patch: Record<string, unknown> = {};
   if (payload.primaryGoal) {
     patch.primary_goal = payload.primaryGoal;
+    if (
+      !existing ||
+      existing.primary_goal !== payload.primaryGoal
+    ) {
+      patch.goal_started_at = today;
+    }
   }
   if (payload.targetDate) {
     patch.target_date = payload.targetDate;
+  } else if (payload.durationWeeks != null) {
+    const { addDaysIso } = await import("@/lib/programme-deadline");
+    patch.target_date = addDaysIso(today, payload.durationWeeks * 7);
   }
   if (payload.targetWeightKg != null) {
     patch.target_weight_kg = payload.targetWeightKg;
@@ -480,6 +498,45 @@ async function applyGoalProposal(
     console.error("[coach-changes] Goal update failed:", error.message);
     return "Goal couldn’t be saved.";
   }
+
+  if (
+    payload.primaryGoal &&
+    existing &&
+    existing.primary_goal !== payload.primaryGoal
+  ) {
+    if (existing.goal_started_at || existing.primary_goal) {
+      await supabase
+        .from("goal_history")
+        .update({ effective_to: today })
+        .eq("user_id", userId)
+        .is("effective_to", null);
+    }
+    await supabase.from("goal_history").insert({
+      user_id: userId,
+      primary_goal: payload.primaryGoal,
+      goal_in_own_words:
+        payload.goalInOwnWords ??
+        (typeof existing.goal_in_own_words === "string"
+          ? existing.goal_in_own_words
+          : null),
+      target_weight_kg:
+        payload.targetWeightKg ??
+        (typeof existing.target_weight_kg === "number"
+          ? existing.target_weight_kg
+          : null),
+      target_date:
+        (typeof patch.target_date === "string"
+          ? patch.target_date
+          : null) ??
+        (typeof existing.target_date === "string"
+          ? existing.target_date
+          : null),
+      effective_from: today,
+      change_reason: "Confirmed with coach",
+      source: "coach",
+    });
+  }
+
   return null;
 }
 

@@ -11,8 +11,7 @@ import {
   sendCoachMessage,
 } from "@/app/actions/coach";
 import { listPendingTrainingProposals } from "@/app/actions/training";
-import { CoachChangeProposalCard } from "@/components/coach/CoachChangeProposalCard";
-import { PlanProposalCard } from "@/components/train/PlanProposalCard";
+import { CoachPlanUpdateBundle } from "@/components/coach/CoachPlanUpdateBundle";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import {
   getLocalCoachDate,
@@ -280,26 +279,15 @@ export function CoachConversationExperience({
 
         {proposals.length > 0 || changeProposals.length > 0 ? (
           <div className="space-y-3 pl-0 sm:pl-2">
-            {proposals.map((proposal) => (
-              <PlanProposalCard
-                key={proposal.id}
-                proposal={proposal}
-                onResolved={() => {
-                  refreshProposals();
-                  router.refresh();
-                }}
-              />
-            ))}
-            {changeProposals.map((proposal) => (
-              <CoachChangeProposalCard
-                key={proposal.id}
-                proposal={proposal}
-                onResolved={() => {
-                  refreshProposals();
-                  router.refresh();
-                }}
-              />
-            ))}
+            <CoachPlanUpdateBundle
+              conversationId={conversationId}
+              changeProposals={changeProposals}
+              planProposals={proposals}
+              onResolved={() => {
+                refreshProposals();
+                router.refresh();
+              }}
+            />
           </div>
         ) : null}
 

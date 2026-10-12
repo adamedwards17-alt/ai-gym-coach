@@ -51,6 +51,8 @@ export type ActivityPatternProposalPayload = {
 export type GoalProposalPayload = {
   primaryGoal?: string | null;
   targetDate?: string | null;
+  /** If set and targetDate omitted, target date is derived on accept from today + weeks. */
+  durationWeeks?: number | null;
   targetWeightKg?: number | null;
   goalInOwnWords?: string | null;
 };
@@ -302,6 +304,11 @@ export function parseGoalProposalPayload(
     typeof (record.targetWeightKg ?? record.target_weight_kg) === "number"
       ? Number(record.targetWeightKg ?? record.target_weight_kg)
       : null;
+  const durationWeeks = asPositiveInt(
+    record.durationWeeks ?? record.duration_weeks,
+    1,
+    52,
+  );
   const goalInOwnWords = asOptionalString(
     record.goalInOwnWords ?? record.goal_in_own_words,
     400,
@@ -309,6 +316,7 @@ export function parseGoalProposalPayload(
   if (
     primaryGoal == null &&
     targetDate == null &&
+    durationWeeks == null &&
     targetWeightKg == null &&
     goalInOwnWords == null
   ) {
@@ -317,6 +325,7 @@ export function parseGoalProposalPayload(
   return {
     primaryGoal,
     targetDate,
+    durationWeeks,
     targetWeightKg:
       targetWeightKg != null &&
       Number.isFinite(targetWeightKg) &&
@@ -427,6 +436,8 @@ export function describeCoachChangeProposal(
   }
   if (p.targetDate) {
     lines.push(`Target date → ${p.targetDate}`);
+  } else if (p.durationWeeks != null) {
+    lines.push(`Duration → ${p.durationWeeks} weeks`);
   }
   if (p.targetWeightKg != null) {
     lines.push(`Target weight → ${p.targetWeightKg} kg`);

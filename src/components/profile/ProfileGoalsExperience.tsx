@@ -52,6 +52,7 @@ export function ProfileGoalsExperience() {
   const [heightCm, setHeightCm] = useState("");
   const [weightKg, setWeightKg] = useState("");
   const [activityLevel, setActivityLevel] = useState<string | null>(null);
+  const [cycleCommuteEnabled, setCycleCommuteEnabled] = useState(false);
   const [cycleCommuteDays, setCycleCommuteDays] = useState("");
   const [cycleCommuteMinutes, setCycleCommuteMinutes] = useState("");
   const [activityPatternNotes, setActivityPatternNotes] = useState("");
@@ -81,6 +82,10 @@ export function ProfileGoalsExperience() {
     setHeightCm(profile.heightCm != null ? String(profile.heightCm) : "");
     setWeightKg(profile.weightKg != null ? String(profile.weightKg) : "");
     setActivityLevel(profile.activityLevel);
+    const hasCycle =
+      profile.cycleCommuteDaysPerWeek != null ||
+      profile.cycleCommuteMinutes != null;
+    setCycleCommuteEnabled(hasCycle);
     setCycleCommuteDays(
       profile.cycleCommuteDaysPerWeek != null
         ? String(profile.cycleCommuteDaysPerWeek)
@@ -140,12 +145,14 @@ export function ProfileGoalsExperience() {
       heightCm: heightCm ? Number(heightCm) : null,
       weightKg: weightKg ? Number(weightKg) : null,
       activityLevel,
-      cycleCommuteDaysPerWeek: cycleCommuteDays
-        ? Number(cycleCommuteDays)
-        : null,
-      cycleCommuteMinutes: cycleCommuteMinutes
-        ? Number(cycleCommuteMinutes)
-        : null,
+      cycleCommuteDaysPerWeek:
+        cycleCommuteEnabled && cycleCommuteDays
+          ? Number(cycleCommuteDays)
+          : null,
+      cycleCommuteMinutes:
+        cycleCommuteEnabled && cycleCommuteMinutes
+          ? Number(cycleCommuteMinutes)
+          : null,
       activityPatternNotes: activityPatternNotes.trim() || null,
       trainingFrequency,
       primaryGoal,
@@ -390,8 +397,8 @@ export function ProfileGoalsExperience() {
           <div>
             <p className="mb-2 text-[13px] text-muted">Activity level</p>
             <p className="mb-3 text-[12px] leading-5 text-muted">
-              This is your typical day outside planned workouts. Cycle commuting
-              is recorded separately so twice a week is not treated as every day.
+              Your typical day outside planned workouts — mostly sitting through
+              to very active. Training frequency is captured separately below.
             </p>
             <OptionSelector
               name="activity"
@@ -400,35 +407,62 @@ export function ProfileGoalsExperience() {
               onChange={setActivityLevel}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Cycle to work (days/week)">
-              <input
-                inputMode="numeric"
-                value={cycleCommuteDays}
-                onChange={(e) => setCycleCommuteDays(e.target.value)}
-                placeholder="e.g. 2"
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Typical ride (minutes)">
-              <input
-                inputMode="numeric"
-                value={cycleCommuteMinutes}
-                onChange={(e) => setCycleCommuteMinutes(e.target.value)}
-                placeholder="one way"
-                className={inputClass}
-              />
-            </Field>
-          </div>
           <Field label="Activity notes (optional)">
             <textarea
               value={activityPatternNotes}
               onChange={(e) => setActivityPatternNotes(e.target.value)}
               rows={2}
               className={inputClass}
-              placeholder="e.g. cycle to the office twice a week"
+              placeholder="Anything that materially affects your daily movement"
             />
           </Field>
+          <div>
+            <label className="flex items-start gap-3 text-[14px] text-foreground">
+              <input
+                type="checkbox"
+                checked={cycleCommuteEnabled}
+                onChange={(e) => {
+                  const enabled = e.target.checked;
+                  setCycleCommuteEnabled(enabled);
+                  if (!enabled) {
+                    setCycleCommuteDays("");
+                    setCycleCommuteMinutes("");
+                  }
+                }}
+                className="mt-1"
+              />
+              <span>
+                I regularly cycle to work or study
+                <span className="mt-1 block text-[12px] leading-5 text-muted">
+                  Optional. Only turn this on if it applies — leave it off
+                  otherwise. Frequency is averaged across the week, not treated
+                  as every day.
+                </span>
+              </span>
+            </label>
+            {cycleCommuteEnabled ? (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <Field label="Days per week">
+                  <input
+                    inputMode="numeric"
+                    value={cycleCommuteDays}
+                    onChange={(e) => setCycleCommuteDays(e.target.value)}
+                    placeholder="e.g. 2"
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Typical ride (minutes)">
+                  <input
+                    inputMode="numeric"
+                    value={cycleCommuteMinutes}
+                    onChange={(e) => setCycleCommuteMinutes(e.target.value)}
+                    placeholder="one way"
+                    className={inputClass}
+                  />
+                </Field>
+              </div>
+            ) : null}
+          </div>
         </div>
       </section>
 
