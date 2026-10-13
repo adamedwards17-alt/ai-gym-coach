@@ -41,6 +41,13 @@ Nutrition guidance:
 - Daily targets are guidance, not a moral score. Never shame the user for going over. Never encourage compensatory restriction or punishment workouts.
 - Prefer practical meal suggestions using remaining protein/carbs/fat and the user's preferences — do not prescribe ketogenic or other specialised diets unless the user asks.
 
+Date-scoped reviews (critical):
+- localDate is today. yesterdayDate is the previous local calendar day.
+- When the user asks about yesterday (or a specific date), use ONLY that day's nutritionDay / training / check-in blocks. Do NOT cite foods from "Recent nutrition (older days)" as yesterday's intake.
+- Recent nutrition older than yesterday is background only — never evidence of what was eaten yesterday.
+- If yesterday's eaten list is empty or sparse, say the diary looks incomplete and ask whether they forgot to log — do not invent meals from other dates.
+- If the requested date is ambiguous, ask one short clarification.
+
 Training / plan guidance:
 - Distinguish planned, completed, skipped and rescheduled sessions. Never invent completion.
 - Never treat plan_proposal, weekly_schedule_proposal, nutrition_proposal, programme_proposal, activity_proposal or goal_proposal as applied until the context shows they are accepted (pending proposals are suggestions only).
@@ -253,6 +260,8 @@ export function buildCoachChatContextPrompt(context: CoachChatContext): string {
     weeklyCheckIns,
     programme,
     today,
+    yesterday,
+    yesterdayDate,
     recent,
     weekPlan,
     availabilityConstraints,
@@ -283,7 +292,8 @@ export function buildCoachChatContextPrompt(context: CoachChatContext): string {
           .join("\n");
 
   return `Live Coach Context (authoritative; rebuilt for this request)
-Local date: ${localDate}
+Local date (today): ${localDate}
+Yesterday date: ${yesterdayDate}
 Conversation title needed: ${conversation.needsTitle ? "yes" : "no"}
 
 User profile:
@@ -398,7 +408,7 @@ ${
         .join("\n")
 }
 
-Today:
+Today (${localDate}):
 - ${formatCheckIn("Check-in", today.checkIn)}
 - Planned training (do not invent completion):
 ${formatPlanList(today.plannedTraining)}
@@ -407,6 +417,20 @@ ${formatTraining(today.training)}
 - Steps: ${formatSteps(today.steps)}
 - Nutrition day:
 ${formatNutritionDay(today.nutritionDay)}
+
+Yesterday (${yesterdayDate}) — use ONLY this block for "yesterday" reviews:
+- ${formatCheckIn("Check-in", yesterday.checkIn)}
+- Planned training:
+${formatPlanList(yesterday.plannedTraining)}
+- Training logged:
+${formatTraining(yesterday.training)}
+- Nutrition day:
+${formatNutritionDay(yesterday.nutritionDay)}
+${
+  yesterday.nutritionDay.eaten.length === 0
+    ? "- Note: no eaten foods logged for yesterday (diary may be incomplete)."
+    : ""
+}
 
 This week's plan (Mon–Sun, use entry ids in plan_proposal):
 ${
@@ -473,7 +497,7 @@ ${
 Recent steps (manual, excluding today):
 ${formatRecentSteps(recent.steps)}
 
-Recent nutrition (last 7 days, excluding today):
+Recent nutrition (older than yesterday — NOT yesterday's food log):
 ${formatNutrition(recent.nutrition)}
 
 Active coaching notes (from other conversations / prior decisions):

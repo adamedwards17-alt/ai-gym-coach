@@ -30,6 +30,10 @@ import {
 } from "@/lib/today-coaching-summary";
 import { NUTRITION_ENTRY_SELECT, toNutritionEntryRecord } from "@/lib/nutrition-day";
 import {
+  buildMorningRecap,
+  type MorningRecap,
+} from "@/lib/morning-recap";
+import {
   isWeeklyCheckInDue,
   weekStartForLocalDate,
 } from "@/lib/weekly-check-ins";
@@ -60,6 +64,8 @@ export type TodayDashboardData = {
   stoppedHabitKeys: string[];
   /** Weekly check-in due for the current UK-local week. */
   weeklyCheckInDue: boolean;
+  /** Data-backed yesterday → today morning coaching panel. */
+  morningRecap: MorningRecap;
 };
 
 export type LoadTodayDashboardResult =
@@ -166,20 +172,25 @@ export async function loadTodayDashboard(
   try {
     const supabase = await createClient();
     const habitFrom = shiftCoachDate(localDate, -14);
+    const yesterdayDate = shiftCoachDate(localDate, -1);
 
     const thisWeekStart = weekStartForLocalDate(localDate);
 
     const [
       checkInResult,
       nutritionResult,
+      yesterdayNutritionResult,
       trainingResult,
+      yesterdayTrainingResult,
       planResult,
+      yesterdayPlanResult,
       habitPrefsResult,
       habitHistoryResult,
       weeklyCheckInResult,
     ] = await Promise.all([
       loadTodaysCheckIn(localDate),
       loadNutritionDay(localDate),
+      loadNutritionDay(yesterdayDate),
       supabase
         .from("training_sessions")
         .select(SESSION_SELECT)
@@ -188,10 +199,24 @@ export async function loadTodayDashboard(
         .order("created_at", { ascending: false })
         .limit(8),
       supabase
+        .from("training_sessions")
+        .select(SESSION_SELECT)
+        .eq("user_id", user.id)
+        .eq("session_date", yesterdayDate)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
         .from("training_plan_entries")
         .select(PLAN_SELECT)
         .eq("user_id", user.id)
         .eq("plan_date", localDate)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("training_plan_entries")
+        .select(PLAN_SELECT)
+        .eq("user_id", user.id)
+        .eq("plan_date", yesterdayDate)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
       listNutritionHabitPrefs(),
@@ -219,6 +244,14 @@ export async function loadTodayDashboard(
 
     if (nutritionResult.status === "error") {
       return { status: "error", message: nutritionResult.message };
+    }
+
+    // Yesterday nutrition failure is non-fatal for Today — recap degrades gracefully.
+    if (yesterdayNutritionResult.status === "error") {
+      console.error(
+        "[today-dashboard] Yesterday nutrition load failed:",
+        yesterdayNutritionResult.message,
+      );
     }
 
     if (trainingResult.error) {
@@ -266,6 +299,27 @@ export async function loadTodayDashboard(
       .map((row) => toPlanWorkout(row as Record<string, unknown>))
       .filter((entry): entry is TodayPlanWorkout => entry !== null)
       .filter((entry) => entry.status !== "rescheduled");
+
+    const yesterdaySessions = (yesterdayTrainingResult.data ?? [])
+      .map((row) => toSessionRecord(row as Record<string, unknown>))
+      .filter((session): session is TrainingSessionRecord => session !== null);
+
+    const yesterdayPlanEntries = (yesterdayPlanResult.data ?? [])
+      .map((row) => toPlanWorkout(row as Record<string, unknown>))
+      .filter((entry): entry is TodayPlanWorkout => entry !== null)
+      .filter((entry) => entry.status !== "rescheduled");
+
+    const morningRecap = buildMorningRecap({
+      todayDate: localDate,
+      yesterdayDate,
+      yesterdayNutrition:
+        yesterdayNutritionResult.status === "ok"
+          ? yesterdayNutritionResult.summary
+          : null,
+      yesterdaySessions,
+      yesterdayPlanEntries,
+      todayPlanEntries,
+    });
 
     const trainingSession = todaySessions[0] ?? null;
     const planFromEntries = primaryPlanIdFromEntries(todayPlanEntries);
@@ -333,6 +387,7 @@ export async function loadTodayDashboard(
         habitHistory,
         stoppedHabitKeys,
         weeklyCheckInDue: weeklyCheckInDue && !thisWeekDone,
+        morningRecap,
       },
     };
   } catch (error) {

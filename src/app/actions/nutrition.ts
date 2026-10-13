@@ -25,6 +25,7 @@ import {
   type LookupBarcodeResult,
 } from "@/lib/open-food-facts";
 import {
+  entryDisplayTitle,
   isMealTypeId,
   isNutritionEntryStatus,
   isValidLoggedDate,
@@ -97,6 +98,11 @@ export type StopHabitResult =
 
 export async function listRecentNutritionEntries(
   limit = 20,
+  options?: {
+    mealType?: MealTypeId | null;
+    /** Exclusive upper bound (e.g. today) so suggestions stay historical. */
+    beforeDate?: string | null;
+  },
 ): Promise<ListNutritionResult> {
   if (!isSupabaseConfigured()) {
     return {
@@ -110,15 +116,35 @@ export async function listRecentNutritionEntries(
     return { status: "error", message: "You’re not signed in." };
   }
 
+  const mealType = options?.mealType ?? null;
+  if (mealType != null && !isMealTypeId(mealType)) {
+    return { status: "error", message: "That meal category isn’t valid." };
+  }
+  if (
+    options?.beforeDate != null &&
+    !isValidLoggedDate(options.beforeDate)
+  ) {
+    return { status: "error", message: "That date isn’t valid." };
+  }
+
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase
+    let request = supabase
       .from("nutrition_entries")
       .select(NUTRITION_ENTRY_SELECT)
       .eq("user_id", user.id)
       .order("logged_date", { ascending: false })
       .order("created_at", { ascending: false })
-      .limit(Math.min(Math.max(limit, 1), 40));
+      .limit(Math.min(Math.max(limit, 1), 80));
+
+    if (mealType) {
+      request = request.eq("meal_type", mealType);
+    }
+    if (options?.beforeDate) {
+      request = request.lt("logged_date", options.beforeDate);
+    }
+
+    const { data, error } = await request;
 
     if (error) {
       console.error("[nutrition] List failed:", error.message);
@@ -128,11 +154,25 @@ export async function listRecentNutritionEntries(
       };
     }
 
-    const entries = (data ?? [])
-      .map((row) =>
-        toNutritionEntryRecord(row as unknown as Record<string, unknown>),
-      )
-      .filter((entry): entry is NutritionEntryRecord => entry !== null);
+    const seen = new Set<string>();
+    const entries: NutritionEntryRecord[] = [];
+    for (const row of data ?? []) {
+      const entry = toNutritionEntryRecord(
+        row as unknown as Record<string, unknown>,
+      );
+      if (!entry || entry.calories_estimated == null) {
+        continue;
+      }
+      const key = entryDisplayTitle(entry).trim().toLowerCase();
+      if (!key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      entries.push(entry);
+      if (entries.length >= Math.min(Math.max(limit, 1), 40)) {
+        break;
+      }
+    }
 
     return { status: "ok", entries };
   } catch (error) {
@@ -449,6 +489,10 @@ export async function estimateNutritionFromPhoto(input: {
 export async function searchRecentNutritionEntries(input: {
   query: string;
   localDate: string;
+  /** When set, only return foods previously logged in this meal category. */
+  mealType?: MealTypeId | null;
+  /** When true with mealType, ignore category filter (search all saved foods). */
+  searchAllCategories?: boolean;
 }): Promise<SearchNutritionResult> {
   const query = input.query.trim();
   if (query.length < 2) {
@@ -457,6 +501,14 @@ export async function searchRecentNutritionEntries(input: {
 
   if (!isValidLoggedDate(input.localDate)) {
     return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (
+    input.mealType != null &&
+    !input.searchAllCategories &&
+    !isMealTypeId(input.mealType)
+  ) {
+    return { status: "error", message: "That meal category isn’t valid." };
   }
 
   if (!isSupabaseConfigured()) {
@@ -471,14 +523,16 @@ export async function searchRecentNutritionEntries(input: {
     return { status: "error", message: "You’re not signed in." };
   }
 
-  const fromDate = shiftCoachDate(input.localDate, -7);
+  const fromDate = shiftCoachDate(input.localDate, -28);
   const normalizedQuery = normalizeFoodText(query);
+  const filterMealType =
+    input.mealType && !input.searchAllCategories ? input.mealType : null;
 
   try {
     const supabase = await createClient();
-    // Fetch the last 7 days without a SQL filter, then match client-side so
+    // Fetch recent days without a SQL text filter, then match client-side so
     // display names and aliases (not just the raw description) are searchable.
-    const { data, error } = await supabase
+    let request = supabase
       .from("nutrition_entries")
       .select(NUTRITION_ENTRY_SELECT)
       .eq("user_id", user.id)
@@ -487,6 +541,10 @@ export async function searchRecentNutritionEntries(input: {
       .order("logged_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(200);
+    if (filterMealType) {
+      request = request.eq("meal_type", filterMealType);
+    }
+    const { data, error } = await request;
 
     if (error) {
       console.error("[nutrition] Search failed:", error.message);
@@ -561,6 +619,10 @@ export async function updateNutritionEntry(input: {
   displayName?: string | null;
   /** When provided, updates the meal category (including null to clear). */
   mealType?: MealTypeId | null;
+  /** Move the entry to another local calendar date (must be ≤ today). */
+  loggedDate?: string;
+  /** Portions eaten for this log only — does not rewrite meal definitions. */
+  portions?: number | null;
   calories: number;
   proteinG: number;
   carbsG: number;
@@ -577,6 +639,13 @@ export async function updateNutritionEntry(input: {
     !isMealTypeId(input.mealType)
   ) {
     return { status: "error", message: "That meal category isn’t valid." };
+  }
+
+  if (
+    input.loggedDate !== undefined &&
+    !isValidLoggedDate(input.loggedDate)
+  ) {
+    return { status: "error", message: "That date isn’t valid." };
   }
 
   const calories = Math.round(input.calories);
@@ -653,6 +722,17 @@ export async function updateNutritionEntry(input: {
     };
     if (input.mealType !== undefined) {
       updatePayload.meal_type = input.mealType;
+    }
+    if (input.loggedDate !== undefined) {
+      updatePayload.logged_date = input.loggedDate;
+    }
+    if (input.portions !== undefined) {
+      updatePayload.portions =
+        typeof input.portions === "number" &&
+        Number.isFinite(input.portions) &&
+        input.portions > 0
+          ? Math.round(input.portions * 10) / 10
+          : null;
     }
 
     const { data, error } = await supabase

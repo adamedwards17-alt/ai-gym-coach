@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { editableMealTypeOptions } from "@/lib/meal-suggestion";
 import {
   entryDisplayTitle,
+  getLocalLoggedDate,
+  isValidLoggedDate,
   labelForMealType,
   type MealTypeId,
   type NutritionEntryRecord,
 } from "@/lib/nutrition";
+import {
+  normalizePortions,
+  PORTION_PRESETS,
+  scaleLoggedMacrosForPortions,
+} from "@/lib/nutrition-portions";
 
 type NutritionEditSheetProps = {
   entry: NutritionEntryRecord;
@@ -18,6 +25,8 @@ type NutritionEditSheetProps = {
     description: string;
     displayName: string;
     mealType: MealTypeId | null;
+    loggedDate: string;
+    portions: number;
     calories: number;
     proteinG: number;
     carbsG: number;
@@ -32,21 +41,81 @@ export function NutritionEditSheet({
   onCancel,
   onSave,
 }: NutritionEditSheetProps) {
+  const initialPortions = normalizePortions(entry.portions);
   const [displayName, setDisplayName] = useState(entryDisplayTitle(entry));
   const [description, setDescription] = useState(entry.description);
   const [mealType, setMealType] = useState<MealTypeId | null>(entry.meal_type);
-  const [calories, setCalories] = useState(
-    String(entry.calories_estimated ?? 0),
-  );
+  const [loggedDate, setLoggedDate] = useState(entry.logged_date);
+  const [portions, setPortions] = useState(initialPortions);
+  const [basePortions] = useState(initialPortions);
+  const [baseMacros] = useState({
+    calories: Number(entry.calories_estimated ?? 0),
+    proteinG: Number(entry.protein_g_estimated ?? 0),
+    carbsG: Number(entry.carbs_g_estimated ?? 0),
+    fatG: Number(entry.fat_g_estimated ?? 0),
+  });
+  const [manualMacros, setManualMacros] = useState(false);
+  const [calories, setCalories] = useState(String(Math.round(baseMacros.calories)));
   const [proteinG, setProteinG] = useState(
-    String(Math.round(Number(entry.protein_g_estimated ?? 0))),
+    String(Math.round(baseMacros.proteinG * 10) / 10),
   );
   const [carbsG, setCarbsG] = useState(
-    String(Math.round(Number(entry.carbs_g_estimated ?? 0))),
+    String(Math.round(baseMacros.carbsG * 10) / 10),
   );
   const [fatG, setFatG] = useState(
-    String(Math.round(Number(entry.fat_g_estimated ?? 0))),
+    String(Math.round(baseMacros.fatG * 10) / 10),
   );
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const scaledPreview = useMemo(
+    () =>
+      scaleLoggedMacrosForPortions({
+        macros: baseMacros,
+        currentPortions: basePortions,
+        nextPortions: portions,
+      }),
+    [baseMacros, basePortions, portions],
+  );
+
+  function applyPortions(next: number) {
+    const safe = normalizePortions(next);
+    setPortions(safe);
+    if (!manualMacros) {
+      const scaled = scaleLoggedMacrosForPortions({
+        macros: baseMacros,
+        currentPortions: basePortions,
+        nextPortions: safe,
+      });
+      setCalories(String(scaled.calories));
+      setProteinG(String(scaled.proteinG));
+      setCarbsG(String(scaled.carbsG));
+      setFatG(String(scaled.fatG));
+    }
+  }
+
+  function handleSave() {
+    if (!isValidLoggedDate(loggedDate)) {
+      setLocalError("Choose a valid date.");
+      return;
+    }
+    const today = getLocalLoggedDate();
+    if (loggedDate > today) {
+      setLocalError("You can’t log food in the future.");
+      return;
+    }
+    setLocalError(null);
+    onSave({
+      description,
+      displayName,
+      mealType,
+      loggedDate,
+      portions,
+      calories: Number(calories),
+      proteinG: Number(proteinG),
+      carbsG: Number(carbsG),
+      fatG: Number(fatG),
+    });
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
@@ -69,11 +138,22 @@ export function NutritionEditSheet({
           Edit entry
         </p>
         <p className="mt-1 text-[13px] text-muted">
-          Renaming keeps your nutrition values. Saving marks macros as manually
-          edited.
+          Changing portions scales nutrition for this log only — not the saved
+          recipe. Saving marks macros as manually confirmed.
         </p>
 
         <div className="mt-5 flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted">Logged date</span>
+            <input
+              type="date"
+              value={loggedDate}
+              max={getLocalLoggedDate()}
+              onChange={(event) => setLoggedDate(event.target.value)}
+              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+            />
+          </label>
+
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] text-muted">Display name</span>
             <input
@@ -91,6 +171,31 @@ export function NutritionEditSheet({
               className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
             />
           </label>
+
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="text-[12px] text-muted">Portions eaten</legend>
+            <div className="flex flex-wrap gap-2">
+              {PORTION_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => applyPortions(preset)}
+                  className={`min-h-10 min-w-12 rounded-full border px-3 text-[13px] ${
+                    portions === preset
+                      ? "border-white/20 bg-white/10 text-foreground"
+                      : "border-border text-muted hover:text-foreground"
+                  }`}
+                >
+                  {preset}×
+                </button>
+              ))}
+            </div>
+            <p className="text-[12px] text-muted">
+              Base log was {basePortions}× (
+              {Math.round(baseMacros.calories)} kcal). At {portions}× → about{" "}
+              {scaledPreview.calories} kcal before manual tweaks.
+            </p>
+          </fieldset>
 
           <fieldset className="flex flex-col gap-1.5">
             <legend className="text-[12px] text-muted">Meal category</legend>
@@ -127,9 +232,12 @@ export function NutritionEditSheet({
               <label key={label} className="flex flex-col gap-1.5">
                 <span className="text-[12px] text-muted">{label}</span>
                 <input
-                  inputMode="numeric"
+                  inputMode="decimal"
                   value={value}
-                  onChange={(event) => setter(event.target.value)}
+                  onChange={(event) => {
+                    setManualMacros(true);
+                    setter(event.target.value);
+                  }}
                   className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
                 />
               </label>
@@ -137,9 +245,9 @@ export function NutritionEditSheet({
           </div>
         </div>
 
-        {error ? (
+        {localError || error ? (
           <p role="alert" className="mt-3 text-[13px] text-muted">
-            {error}
+            {localError ?? error}
           </p>
         ) : null}
 
@@ -148,17 +256,7 @@ export function NutritionEditSheet({
             type="button"
             disabled={saving}
             className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
-            onClick={() =>
-              onSave({
-                description,
-                displayName,
-                mealType,
-                calories: Number(calories),
-                proteinG: Number(proteinG),
-                carbsG: Number(carbsG),
-                fatG: Number(fatG),
-              })
-            }
+            onClick={handleSave}
           >
             {saving ? "Saving…" : "Save changes"}
           </button>

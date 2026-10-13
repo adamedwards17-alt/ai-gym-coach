@@ -5,6 +5,7 @@ import { saveTrainingSession } from "@/app/actions/training";
 import {
   getLocalSessionDate,
   intensityOptions,
+  isValidSessionDate,
   labelForDuration,
   labelForTrainingType,
   type TrainingIntensityId,
@@ -70,13 +71,26 @@ export function WorkoutLogSheet({
     session?.calories_burned != null ? String(session.calories_burned) : "",
   );
   const [notes, setNotes] = useState(session?.notes ?? "");
+  const [sessionDate, setSessionDate] = useState(
+    () => session?.session_date ?? getLocalSessionDate(),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const today = getLocalSessionDate();
 
   async function handleSave() {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       setError("Add a workout name or focus.");
+      return;
+    }
+
+    if (!isValidSessionDate(sessionDate)) {
+      setError("Choose a valid date.");
+      return;
+    }
+    if (sessionDate > today) {
+      setError("Workouts can’t be logged in the future.");
       return;
     }
 
@@ -95,10 +109,6 @@ export function WorkoutLogSheet({
     setSaving(true);
     setError(null);
 
-    const sessionDate =
-      session?.session_date ??
-      getLocalSessionDate();
-
     const result = await saveTrainingSession({
       sessionDate,
       trainingType,
@@ -108,6 +118,7 @@ export function WorkoutLogSheet({
       caloriesBurned,
       notes: notes.trim() || null,
       planEntryId: plan?.id ?? null,
+      sessionId: session?.id ?? null,
     });
 
     setSaving(false);
@@ -155,6 +166,17 @@ export function WorkoutLogSheet({
         )}
 
         <div className="mt-5 flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] text-muted">Date</span>
+            <input
+              type="date"
+              value={sessionDate}
+              max={today}
+              onChange={(event) => setSessionDate(event.target.value)}
+              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+            />
+          </label>
+
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] text-muted">Name or focus</span>
             <input

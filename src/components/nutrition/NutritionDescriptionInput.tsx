@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { searchRecentNutritionEntries } from "@/app/actions/nutrition";
 import {
   entryDisplayTitle,
   formatEntryNutritionLine,
   getLocalLoggedDate,
+  type MealTypeId,
   type NutritionEntryRecord,
 } from "@/lib/nutrition";
 
@@ -15,6 +16,10 @@ type NutritionDescriptionInputProps = {
   initialValue?: string;
   /** When false, autocomplete suggestions are hidden (describe-only mode). */
   enableSuggestions?: boolean;
+  /** Prefer foods previously logged in this meal category. */
+  mealType?: MealTypeId | null;
+  /** Optional trailing controls inside the input (barcode / camera). */
+  trailingActions?: ReactNode;
   onSubmit: (description: string) => void;
   onSelectSuggestion: (entry: NutritionEntryRecord) => void;
 };
@@ -24,12 +29,15 @@ export function NutritionDescriptionInput({
   placeholder,
   initialValue = "",
   enableSuggestions = true,
+  mealType = null,
+  trailingActions,
   onSubmit,
   onSelectSuggestion,
 }: NutritionDescriptionInputProps) {
   const [value, setValue] = useState(initialValue);
   const [suggestions, setSuggestions] = useState<NutritionEntryRecord[]>([]);
   const [open, setOpen] = useState(false);
+  const [searchAll, setSearchAll] = useState(false);
 
   const runSearch = useEffectEvent(async (query: string) => {
     if (!enableSuggestions || query.trim().length < 2) {
@@ -40,6 +48,8 @@ export function NutritionDescriptionInput({
     const result = await searchRecentNutritionEntries({
       query,
       localDate: getLocalLoggedDate(),
+      mealType,
+      searchAllCategories: searchAll || !mealType,
     });
 
     if (result.status === "ok") {
@@ -53,7 +63,7 @@ export function NutritionDescriptionInput({
       void runSearch(value);
     }, 180);
     return () => window.clearTimeout(handle);
-  }, [value, enableSuggestions]);
+  }, [value, enableSuggestions, mealType, searchAll]);
 
   return (
     <form
@@ -65,8 +75,6 @@ export function NutritionDescriptionInput({
           return;
         }
         setOpen(false);
-        // Exact match on a recent suggestion → reuse that entry (structured editor
-        // when macros exist). Only genuinely new text uses the AI flow.
         const match = suggestions.find((entry) => {
           const description = entry.description.trim().toLowerCase();
           const title = entryDisplayTitle(entry).trim().toLowerCase();
@@ -80,24 +88,45 @@ export function NutritionDescriptionInput({
         onSubmit(trimmed);
       }}
     >
-      <input
-        aria-label={label}
-        value={value}
-        placeholder={placeholder}
-        autoComplete="off"
-        className="h-12 w-full rounded-full border border-border bg-surface/60 px-4 text-[15px] text-foreground outline-none placeholder:text-muted focus:border-white/20"
-        onChange={(event) => {
-          setValue(event.target.value);
-          if (enableSuggestions) {
-            setOpen(true);
-          }
-        }}
-        onFocus={() => {
-          if (enableSuggestions && suggestions.length > 0) {
-            setOpen(true);
-          }
-        }}
-      />
+      <div className="flex h-12 items-center gap-1 rounded-full border border-border bg-surface/60 pl-4 pr-1.5 focus-within:border-white/20">
+        <input
+          aria-label={label}
+          value={value}
+          placeholder={placeholder}
+          autoComplete="off"
+          className="h-full min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted"
+          onChange={(event) => {
+            setValue(event.target.value);
+            if (enableSuggestions) {
+              setOpen(true);
+            }
+          }}
+          onFocus={() => {
+            if (enableSuggestions && suggestions.length > 0) {
+              setOpen(true);
+            }
+          }}
+        />
+        {trailingActions ? (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {trailingActions}
+          </div>
+        ) : null}
+      </div>
+
+      {enableSuggestions && mealType ? (
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setSearchAll((current) => !current)}
+            className="text-[12px] text-muted underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {searchAll
+              ? "Showing all saved foods — prefer this meal?"
+              : "Search all saved foods"}
+          </button>
+        </div>
+      ) : null}
 
       {enableSuggestions && open && suggestions.length > 0 ? (
         <ul

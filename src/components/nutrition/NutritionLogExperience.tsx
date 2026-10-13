@@ -6,6 +6,7 @@ import { startMealInspirationChat } from "@/app/actions/coach";
 import {
   deleteNutritionEntry,
   estimateNutritionFood,
+  listRecentNutritionEntries,
   loadNutritionDay,
   markNutritionEntryEaten,
   saveMealDraftEntry,
@@ -18,6 +19,10 @@ import { NutritionConfirmDialog } from "@/components/nutrition/NutritionConfirmD
 import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySummary";
 import { NutritionDescriptionInput } from "@/components/nutrition/NutritionDescriptionInput";
 import { NutritionEditSheet } from "@/components/nutrition/NutritionEditSheet";
+import {
+  MealBarcodeButton,
+  MealCameraButton,
+} from "@/components/nutrition/MealActionIcons";
 import {
   NutritionMealBuilder,
   type MealBuilderSaveValues,
@@ -32,6 +37,7 @@ import {
   shouldOpenMealBuilder,
   type MealDraft,
 } from "@/lib/meal-builder";
+import { shiftCoachDate } from "@/lib/coach";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
@@ -99,11 +105,19 @@ const emptyDraft: NutritionEntryDraft = {
 
 export function NutritionLogExperience({
   initialMealType = null,
+  initialDate = null,
 }: {
   initialMealType?: MealTypeId | null;
+  /** When set (e.g. ?date=yesterday), load/log against this local date. */
+  initialDate?: string | null;
 }) {
   const router = useRouter();
-  const [loggingOpen, setLoggingOpen] = useState(() => initialMealType != null);
+  const [activeDate, setActiveDate] = useState(
+    () => initialDate ?? getLocalLoggedDate(),
+  );
+  const [loggingOpen, setLoggingOpen] = useState(
+    () => initialMealType != null || initialDate != null,
+  );
   const [draft, setDraft] = useState<NutritionEntryDraft>(() =>
     initialMealType
       ? { ...emptyDraft, mealType: initialMealType, mealTypeSkipped: false }
@@ -148,8 +162,14 @@ export function NutritionLogExperience({
     brand: string | null;
   } | null>(null);
   const [clock, setClock] = useState(() => new Date());
+  const [categorySuggestions, setCategorySuggestions] = useState<
+    NutritionEntryRecord[]
+  >([]);
+  const [searchAllCategories, setSearchAllCategories] = useState(false);
 
   const today = getLocalLoggedDate();
+  const viewingHistorical = activeDate !== today;
+  const yesterday = shiftCoachDate(today, -1);
 
   const step: Step = useMemo(() => {
     if (editing) {
@@ -233,8 +253,8 @@ export function NutritionLogExperience({
     return suggestedMealType;
   }, [mealGroups, suggestedMealType]);
 
-  async function refreshDay() {
-    const result = await loadNutritionDay(getLocalLoggedDate());
+  async function refreshDay(date = activeDate) {
+    const result = await loadNutritionDay(date);
     if (result.status === "ok") {
       setSummary(result.summary);
       setEntries(result.recent);
@@ -248,7 +268,7 @@ export function NutritionLogExperience({
   useEffect(() => {
     let cancelled = false;
 
-    void loadNutritionDay(getLocalLoggedDate()).then((result) => {
+    void loadNutritionDay(activeDate).then((result) => {
       if (cancelled) {
         return;
       }
@@ -265,7 +285,34 @@ export function NutritionLogExperience({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeDate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const mealType = draft.mealType;
+    if (!mealType || searchAllCategories) {
+      void listRecentNutritionEntries(24).then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setCategorySuggestions(result.status === "ok" ? result.entries : []);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void listRecentNutritionEntries(24, { mealType }).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      setCategorySuggestions(result.status === "ok" ? result.entries : []);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.mealType, searchAllCategories]);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 60_000);
@@ -446,7 +493,7 @@ export function NutritionLogExperience({
     setSaving(true);
     setSaveError(null);
     const result = await saveMealDraftEntry({
-      loggedDate: getLocalLoggedDate(),
+      loggedDate: activeDate,
       mealType: values.mealType,
       status: values.status,
       draft: values.draft,
@@ -493,7 +540,7 @@ export function NutritionLogExperience({
     setSaveError(null);
 
     const result = await saveNutritionEntry({
-      loggedDate: getLocalLoggedDate(),
+      loggedDate: activeDate,
       description: draft.description,
       mealType: draft.mealTypeSkipped ? null : draft.mealType,
       status: draft.status,
@@ -652,7 +699,7 @@ export function NutritionLogExperience({
     setSaveError(null);
 
     const result = await saveNutritionEntry({
-      loggedDate: getLocalLoggedDate(),
+      loggedDate: activeDate,
       description: values.description,
       mealType: values.mealType,
       status: values.status,
@@ -747,6 +794,8 @@ export function NutritionLogExperience({
     description: string;
     displayName: string;
     mealType: MealTypeId | null;
+    loggedDate: string;
+    portions: number;
     calories: number;
     proteinG: number;
     carbsG: number;
@@ -762,6 +811,8 @@ export function NutritionLogExperience({
       description: values.description,
       displayName: values.displayName,
       mealType: values.mealType,
+      loggedDate: values.loggedDate,
+      portions: values.portions,
       calories: values.calories,
       proteinG: values.proteinG,
       carbsG: values.carbsG,
@@ -773,7 +824,8 @@ export function NutritionLogExperience({
       return;
     }
     setEditEntry(null);
-    await refreshDay();
+    // If the entry moved to another day, stay on the day we're viewing.
+    await refreshDay(activeDate);
   }
 
   function renderEntryActions(entry: NutritionEntryRecord) {
@@ -852,8 +904,58 @@ export function NutritionLogExperience({
           Nutrition
         </p>
         <h1 className="mt-2 font-serif text-[1.85rem] leading-tight tracking-tight sm:text-4xl">
-          {formatNutritionDate(today)}
+          {formatNutritionDate(activeDate)}
         </h1>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-[13px] text-muted">
+            <span className="sr-only">Diary date</span>
+            <input
+              type="date"
+              value={activeDate}
+              max={today}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (!next || next === activeDate) {
+                  return;
+                }
+                setActiveDate(next);
+                setReady(false);
+                setJustSaved(false);
+              }}
+              className="h-9 rounded-full border border-border bg-surface/60 px-3 text-[13px] text-foreground outline-none focus:border-white/20"
+            />
+          </label>
+          {viewingHistorical ? (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDate(today);
+                setReady(false);
+              }}
+              className="text-[13px] text-muted underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Back to today
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDate(yesterday);
+                setReady(false);
+                setLoggingOpen(true);
+              }}
+              className="text-[13px] text-muted underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Log for yesterday
+            </button>
+          )}
+        </div>
+        {viewingHistorical ? (
+          <p className="mt-2 text-[13px] text-muted">
+            Editing {formatLoggedDateLabel(activeDate)}. New entries save to this
+            date.
+          </p>
+        ) : null}
       </header>
 
       {loadError ? (
@@ -963,7 +1065,7 @@ export function NutritionLogExperience({
                 setRecentFood({
                   entry: {
                     id: `barcode-${payload.barcode}`,
-                    logged_date: getLocalLoggedDate(),
+                    logged_date: activeDate,
                     meal_type: meal,
                     description: payload.description,
                     display_name: payload.displayName,
@@ -1052,13 +1154,14 @@ export function NutritionLogExperience({
                       <button
                         key={meal}
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          setSearchAllCategories(false);
                           setDraft((current) => ({
                             ...current,
                             mealType: meal,
                             mealTypeSkipped: false,
-                          }))
-                        }
+                          }));
+                        }}
                         className={`rounded-full border px-3.5 py-2 text-[13px] transition-colors ${
                           selected
                             ? "border-foreground bg-foreground text-background"
@@ -1073,61 +1176,50 @@ export function NutritionLogExperience({
               </div>
 
               <div>
-                <div className="flex items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <NutritionDescriptionInput
-                      key={composerKey}
-                      label="Search or describe food"
-                      placeholder="Search recent foods or describe a meal…"
-                      enableSuggestions
-                      onSubmit={(description) => {
-                        beginEdit();
-                        setRecentFood(null);
-                        setBarcodeMeta(null);
-                        setMealDraft(null);
-                        setDraft((current) => ({
-                          ...current,
-                          description,
-                          mealTypeSkipped: false,
-                          status: "eaten",
-                        }));
-                        setEstimate(null);
-                        setPendingEstimate(null);
-                        setClarificationQuestion(null);
-                        setFromSuggestion(false);
-                        setEntryMode("describe");
-                        setEditing(null);
-                        // AI works behind the scenes → structured meal builder.
-                        void runEstimate(description);
-                      }}
-                      onSelectSuggestion={applySuggestion}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Scan barcode"
-                    title="Scan barcode"
-                    onClick={() => {
-                      beginEdit();
-                      setEntryMode("barcode");
-                    }}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border text-[15px] text-foreground hover:border-white/20"
-                  >
-                    ⌗
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Estimate from photo"
-                    title="Estimate from photo"
-                    onClick={() => {
-                      beginEdit();
-                      setEntryMode("photo");
-                    }}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border text-[15px] text-foreground hover:border-white/20"
-                  >
-                    ▣
-                  </button>
-                </div>
+                <NutritionDescriptionInput
+                  key={composerKey}
+                  label="Search or describe food"
+                  placeholder="Search recent foods or describe a meal…"
+                  enableSuggestions
+                  mealType={draft.mealType}
+                  trailingActions={
+                    <>
+                      <MealBarcodeButton
+                        onClick={() => {
+                          beginEdit();
+                          setEntryMode("barcode");
+                        }}
+                      />
+                      <MealCameraButton
+                        onClick={() => {
+                          beginEdit();
+                          setEntryMode("photo");
+                        }}
+                      />
+                    </>
+                  }
+                  onSubmit={(description) => {
+                    beginEdit();
+                    setRecentFood(null);
+                    setBarcodeMeta(null);
+                    setMealDraft(null);
+                    setDraft((current) => ({
+                      ...current,
+                      description,
+                      mealTypeSkipped: false,
+                      status: "eaten",
+                    }));
+                    setEstimate(null);
+                    setPendingEstimate(null);
+                    setClarificationQuestion(null);
+                    setFromSuggestion(false);
+                    setEntryMode("describe");
+                    setEditing(null);
+                    // AI works behind the scenes → structured meal builder.
+                    void runEstimate(description);
+                  }}
+                  onSelectSuggestion={applySuggestion}
+                />
                 <button
                   type="button"
                   onClick={() => {
@@ -1140,52 +1232,59 @@ export function NutritionLogExperience({
                 </button>
               </div>
 
-              {entries.filter((entry) => entry.calories_estimated != null)
-                .length > 0 ? (
-                <div>
+              <div>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
-                    Recent foods
+                    {draft.mealType && !searchAllCategories
+                      ? `Recent ${labelForMealType(draft.mealType)}`
+                      : "Recent foods"}
                   </p>
-                  <ul className="mt-3 divide-y divide-border/70 rounded-2xl border border-border/70">
-                    {entries
-                      .filter((entry) => entry.calories_estimated != null)
-                      .filter((entry, index, list) => {
-                        const key = entryDisplayTitle(entry)
-                          .trim()
-                          .toLowerCase();
-                        return (
-                          list.findIndex(
-                            (other) =>
-                              entryDisplayTitle(other).trim().toLowerCase() ===
-                              key,
-                          ) === index
-                        );
-                      })
-                      .slice(0, 8)
-                      .map((entry) => {
-                        const line = formatEntryNutritionLine(entry);
-                        return (
-                          <li key={entry.id}>
-                            <button
-                              type="button"
-                              onClick={() => applySuggestion(entry)}
-                              className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
-                            >
-                              <span className="text-[14px] text-foreground">
-                                {entryDisplayTitle(entry)}
-                              </span>
-                              {line ? (
-                                <span className="text-[12px] text-muted">
-                                  {line}
-                                </span>
-                              ) : null}
-                            </button>
-                          </li>
-                        );
-                      })}
-                  </ul>
+                  {draft.mealType ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSearchAllCategories((current) => !current)
+                      }
+                      className="text-[12px] text-muted underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      {searchAllCategories
+                        ? `Show ${labelForMealType(draft.mealType)} only`
+                        : "Search all saved foods"}
+                    </button>
+                  ) : null}
                 </div>
-              ) : null}
+                {categorySuggestions.length > 0 ? (
+                  <ul className="mt-3 divide-y divide-border/70 rounded-2xl border border-border/70">
+                    {categorySuggestions.slice(0, 8).map((entry) => {
+                      const line = formatEntryNutritionLine(entry);
+                      return (
+                        <li key={entry.id}>
+                          <button
+                            type="button"
+                            onClick={() => applySuggestion(entry)}
+                            className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                          >
+                            <span className="text-[14px] text-foreground">
+                              {entryDisplayTitle(entry)}
+                            </span>
+                            {line ? (
+                              <span className="text-[12px] text-muted">
+                                {line}
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-[13px] leading-6 text-muted">
+                    {draft.mealType && !searchAllCategories
+                      ? `No previous ${labelForMealType(draft.mealType).toLowerCase()} foods yet. Search above or choose another meal.`
+                      : "No recent foods yet. Describe a meal or scan a barcode to start."}
+                  </p>
+                )}
+              </div>
             </>
           ) : (
             <>
@@ -1598,7 +1697,11 @@ export function NutritionLogExperience({
       {deleteEntryId ? (
         <NutritionConfirmDialog
           title="Remove this entry?"
-          body="This will update today’s nutrition totals."
+          body={
+            viewingHistorical
+              ? "This will update that day’s nutrition totals."
+              : "This will update today’s nutrition totals."
+          }
           confirmLabel="Remove"
           pending={deletePending}
           onCancel={() => setDeleteEntryId(null)}

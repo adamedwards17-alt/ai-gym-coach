@@ -515,6 +515,8 @@ export async function saveTrainingSession(input: {
   strengthDetails?: StrengthExerciseDetail[] | null;
   /** When completing a plan entry, pass its id to avoid duplicate sessions. */
   planEntryId?: string | null;
+  /** When set, update this session instead of inserting a duplicate. */
+  sessionId?: string | null;
 }): Promise<SaveTrainingResult> {
   if (!isValidSessionDate(input.sessionDate)) {
     return { status: "error", message: "That date isn’t valid." };
@@ -748,18 +750,53 @@ export async function saveTrainingSession(input: {
       return { status: "saved", session };
     }
 
+    const sessionPayload = {
+      session_date: input.sessionDate,
+      training_type: input.trainingType,
+      title,
+      duration_minutes: input.durationMinutes,
+      notes,
+      intensity: input.intensity ?? null,
+      calories_burned: calories,
+      strength_details: strengthDetails,
+    };
+
+    if (input.sessionId) {
+      const { data, error } = await supabase
+        .from("training_sessions")
+        .update(sessionPayload)
+        .eq("id", input.sessionId)
+        .eq("user_id", user.id)
+        .select(SESSION_SELECT)
+        .single();
+
+      if (error || !data) {
+        console.error(
+          "[training] Update session failed:",
+          error?.message ?? "No row returned",
+        );
+        return {
+          status: "error",
+          message: "That session couldn’t be updated. Try again.",
+        };
+      }
+
+      const session = toSessionRecord(data as Record<string, unknown>);
+      if (!session) {
+        return {
+          status: "error",
+          message: "That session couldn’t be updated. Try again.",
+        };
+      }
+
+      return { status: "saved", session };
+    }
+
     const { data, error } = await supabase
       .from("training_sessions")
       .insert({
         user_id: user.id,
-        session_date: input.sessionDate,
-        training_type: input.trainingType,
-        title,
-        duration_minutes: input.durationMinutes,
-        notes,
-        intensity: input.intensity ?? null,
-        calories_burned: calories,
-        strength_details: strengthDetails,
+        ...sessionPayload,
       })
       .select(SESSION_SELECT)
       .single();

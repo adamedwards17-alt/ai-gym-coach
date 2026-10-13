@@ -17,6 +17,7 @@ import {
 } from "@/app/actions/today-dashboard";
 import { NutritionProgressBars } from "@/components/nutrition/NutritionProgressBars";
 import { MorningCheckIn } from "@/components/today/MorningCheckIn";
+import { MorningRecapPanel } from "@/components/today/MorningRecapPanel";
 import { TodayActionBanners } from "@/components/today/TodayActionBanners";
 import {
   formatSleepHoursLabel,
@@ -678,6 +679,15 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
         <p role="alert" className="mb-6 text-[13px] leading-6 text-muted">
           {loadError}
         </p>
+      ) : null}
+
+      {data?.morningRecap ? (
+        <MorningRecapPanel
+          localDate={data.localDate}
+          recap={data.morningRecap}
+          hasCheckIn={data.hasCheckIn}
+          onStartCheckIn={() => setPanel("check-in")}
+        />
       ) : null}
 
       <TodayActionBanners

@@ -222,6 +222,8 @@ export type CoachProgrammeContext = {
 
 export type CoachChatContext = {
   localDate: string;
+  /** Explicit previous local calendar day (localDate − 1). */
+  yesterdayDate: string;
   profile: CoachProfileContext;
   weight: CoachWeightContext;
   weeklyCheckIns: CoachWeeklyCheckInContext[];
@@ -233,6 +235,13 @@ export type CoachChatContext = {
     steps: CoachChatStepsContext | null;
     nutrition: CoachChatNutritionContext[];
     nutritionDay: CoachNutritionDayContext;
+  };
+  /** Nutrition + training for yesterday only — use for "review yesterday". */
+  yesterday: {
+    nutritionDay: CoachNutritionDayContext;
+    training: CoachChatTrainingContext[];
+    plannedTraining: CoachChatPlanContext[];
+    checkIn: CoachChatCheckInContext | null;
   };
   recent: {
     checkIns: CoachChatCheckInContext[];

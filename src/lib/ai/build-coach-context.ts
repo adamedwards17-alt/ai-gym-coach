@@ -28,6 +28,7 @@ import {
   truncateMessagesForModel,
 } from "@/lib/coach";
 import { daysBetweenLocalDates } from "@/lib/goal-history";
+import { buildNutritionDayContextForDate } from "@/lib/coach-day-context";
 import {
   ensureNutritionTargetsForUser,
   summariseNutritionDay,
@@ -901,8 +902,18 @@ export async function buildCoachContext(input: {
     recentStrength,
   };
 
+  const yesterdayDate = shiftCoachDate(input.localDate, -1);
+  const yesterdayNutritionDay = buildNutritionDayContextForDate({
+    date: yesterdayDate,
+    entries: nutritionEntries,
+    targets: nutritionTargetsEnsured.targets,
+    targetsStatus: nutritionTargetsEnsured.status,
+    targetsMessage: nutritionTargetsEnsured.message,
+  });
+
   return {
     localDate: input.localDate,
+    yesterdayDate,
     profile,
     weight,
     weeklyCheckIns,
@@ -919,14 +930,36 @@ export async function buildCoachContext(input: {
       nutrition: nutrition.filter((item) => item.date === input.localDate),
       nutritionDay,
     },
-    recent: {
-      checkIns: checkIns.filter((item) => item.date !== input.localDate),
-      training: training.filter((item) => item.date !== input.localDate),
+    yesterday: {
+      nutritionDay: yesterdayNutritionDay,
+      training: training.filter((item) => item.date === yesterdayDate),
       plannedTraining: plannedTraining.filter(
-        (item) => item.date !== input.localDate,
+        (item) => item.date === yesterdayDate,
       ),
-      steps: stepsHistory.filter((item) => item.date !== input.localDate),
-      nutrition: nutrition.filter((item) => item.date !== input.localDate),
+      checkIn: checkIns.find((item) => item.date === yesterdayDate) ?? null,
+    },
+    recent: {
+      checkIns: checkIns.filter(
+        (item) =>
+          item.date !== input.localDate && item.date !== yesterdayDate,
+      ),
+      training: training.filter(
+        (item) =>
+          item.date !== input.localDate && item.date !== yesterdayDate,
+      ),
+      plannedTraining: plannedTraining.filter(
+        (item) =>
+          item.date !== input.localDate && item.date !== yesterdayDate,
+      ),
+      steps: stepsHistory.filter(
+        (item) =>
+          item.date !== input.localDate && item.date !== yesterdayDate,
+      ),
+      // Older days only — never use this list as proof of yesterday's intake.
+      nutrition: nutrition.filter(
+        (item) =>
+          item.date !== input.localDate && item.date !== yesterdayDate,
+      ),
     },
     weekPlan,
     availabilityConstraints,
