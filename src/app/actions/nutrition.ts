@@ -35,6 +35,12 @@ import {
   type NutritionEntryStatus,
   type NutritionEstimate,
 } from "@/lib/nutrition";
+import { parseGramsFromText } from "@/lib/nutrition-quantity";
+import { resolveReuseFromRecentFoods } from "@/lib/nutrition-reuse";
+import {
+  confidenceAfterSanity,
+  validateNutritionMacros,
+} from "@/lib/nutrition-sanity";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
@@ -47,7 +53,12 @@ export type NutritionDayResult =
   | { status: "error"; message: string };
 
 export type EstimateNutritionResult =
-  | { status: "ok"; estimate: NutritionEstimate }
+  | { status: "ok"; estimate: NutritionEstimate; reusedEntryId?: string }
+  | {
+      status: "needs_review";
+      estimate: NutritionEstimate;
+      message: string;
+    }
   | { status: "needs_clarification"; question: string }
   | { status: "error"; message: string };
 
@@ -199,10 +210,46 @@ export async function estimateNutritionFood(input: {
   description: string;
   clarificationAnswer?: string | null;
   skipClarification?: boolean;
+  /** When true, skip recent-food reuse and always call the model. */
+  forceAi?: boolean;
 }): Promise<EstimateNutritionResult> {
   const description = input.description.trim();
   if (!description) {
     return { status: "error", message: "Tell me what you’ve eaten." };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  // Prefer scaling a saved food over an AI guess whenever possible.
+  if (!input.forceAi && !input.clarificationAnswer?.trim()) {
+    const recent = await listRecentNutritionEntries(40);
+    if (recent.status === "ok") {
+      const reused = resolveReuseFromRecentFoods({
+        description,
+        recent: recent.entries,
+      });
+      if (reused && (reused.method === "grams" || reused.method === "exact")) {
+        const aliases =
+          reused.estimate.searchAliases &&
+          reused.estimate.searchAliases.length > 0
+            ? reused.estimate.searchAliases
+            : reused.entry.search_aliases;
+        const estimate: NutritionEstimate = {
+          ...reused.estimate,
+          displayName:
+            reused.estimate.displayName ?? reused.entry.display_name,
+          searchAliases: aliases,
+        };
+        return {
+          status: "ok",
+          estimate,
+          reusedEntryId: reused.entry.id,
+        };
+      }
+    }
   }
 
   if (!isGeminiConfigured()) {
@@ -211,11 +258,6 @@ export async function estimateNutritionFood(input: {
       message:
         "Food estimation isn’t connected right now. Check GEMINI_API_KEY and try again.",
     };
-  }
-
-  const user = await getCurrentUser();
-  if (!user) {
-    return { status: "error", message: "You’re not signed in." };
   }
 
   try {
@@ -241,7 +283,44 @@ export async function estimateNutritionFood(input: {
         message: "That estimate couldn’t be read. Try again.",
       };
     }
-    return { status: "ok", estimate: parsed.estimate };
+
+    const quantityGrams = parseGramsFromText(
+      [description, input.clarificationAnswer ?? ""].join(" "),
+    );
+    const sanity = validateNutritionMacros(
+      {
+        calories: parsed.estimate.calories,
+        proteinG: parsed.estimate.proteinG,
+        carbsG: parsed.estimate.carbsG,
+        fatG: parsed.estimate.fatG,
+      },
+      { quantityGrams },
+    );
+    const estimate: NutritionEstimate = {
+      ...parsed.estimate,
+      confidence: confidenceAfterSanity(parsed.estimate.confidence, sanity),
+    };
+
+    if (!sanity.ok) {
+      return {
+        status: "needs_review",
+        estimate,
+        message:
+          sanity.issues[0]?.message ??
+          "That estimate looks off — please review before saving.",
+      };
+    }
+    if (sanity.needsReview) {
+      return {
+        status: "needs_review",
+        estimate,
+        message:
+          sanity.issues[0]?.message ??
+          "Please double-check this estimate before saving.",
+      };
+    }
+
+    return { status: "ok", estimate };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown estimate error";
@@ -249,6 +328,115 @@ export async function estimateNutritionFood(input: {
     return {
       status: "error",
       message: "That food couldn’t be estimated. Try again.",
+    };
+  }
+}
+
+export async function estimateNutritionFromPhoto(input: {
+  imageBase64: string;
+  mimeType: string;
+  note?: string | null;
+}): Promise<
+  | {
+      status: "ok" | "needs_review";
+      estimate: NutritionEstimate;
+      description: string;
+      message?: string;
+    }
+  | { status: "needs_clarification"; question: string }
+  | { status: "error"; message: string }
+> {
+  const imageBase64 = input.imageBase64.trim();
+  const mimeType = input.mimeType.trim() || "image/jpeg";
+  if (!imageBase64) {
+    return { status: "error", message: "Choose a photo of your meal." };
+  }
+  if (imageBase64.length > 12_000_000) {
+    return {
+      status: "error",
+      message: "That image is too large. Try a smaller photo.",
+    };
+  }
+
+  if (!isGeminiConfigured()) {
+    return {
+      status: "error",
+      message:
+        "Photo estimation isn’t connected right now. Log the food another way.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  try {
+    const provider = new GeminiProvider();
+    const { rawText } = await provider.estimateFoodNutritionFromPhoto({
+      imageBase64,
+      mimeType,
+      note: input.note,
+    });
+    const parsed = parseFoodEstimationResponse(rawText);
+    if (parsed.kind === "clarification") {
+      return { status: "needs_clarification", question: parsed.question };
+    }
+    if (parsed.kind !== "estimate") {
+      return {
+        status: "error",
+        message: "That photo estimate couldn’t be read. Try again.",
+      };
+    }
+
+    const description =
+      parsed.estimate.displayName ||
+      (parsed.estimate.items.length > 0
+        ? parsed.estimate.items.map((item) => item.description).join(", ")
+        : "Meal from photo");
+
+    const estimate: NutritionEstimate = {
+      ...parsed.estimate,
+      confidence:
+        parsed.estimate.confidence === "high"
+          ? "medium"
+          : parsed.estimate.confidence,
+      source: "gemini",
+    };
+
+    const sanity = validateNutritionMacros({
+      calories: estimate.calories,
+      proteinG: estimate.proteinG,
+      carbsG: estimate.carbsG,
+      fatG: estimate.fatG,
+    });
+    estimate.confidence = confidenceAfterSanity(estimate.confidence, sanity);
+
+    if (!sanity.ok || sanity.needsReview) {
+      return {
+        status: "needs_review",
+        estimate,
+        description,
+        message:
+          sanity.issues[0]?.message ??
+          "Photo estimates are approximate — please review before saving.",
+      };
+    }
+
+    return {
+      status: "ok",
+      estimate,
+      description,
+      message:
+        "Photo estimates are approximate — please review before saving.",
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown photo estimate error";
+    console.error("[nutrition] Photo estimate failed:", message);
+    return {
+      status: "error",
+      message: "That photo couldn’t be estimated. Try again or log manually.",
     };
   }
 }

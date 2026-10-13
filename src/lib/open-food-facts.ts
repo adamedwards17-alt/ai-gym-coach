@@ -53,9 +53,10 @@ function readNutrients(
   nutriments: Record<string, unknown>,
   suffix: "100g" | "serving",
 ): OpenFoodFactsNutrients {
+  // Only use suffix-scoped fields. Bare `energy-kcal` is often a package or
+  // serving total and must not be treated as per-100g then scaled again.
   const energyKcal =
     toFiniteOrNull(nutriments[`energy-kcal_${suffix}`]) ??
-    toFiniteOrNull(nutriments[`energy-kcal`]) ??
     (toFiniteOrNull(nutriments[`energy_${suffix}`]) != null
       ? Math.round(Number(nutriments[`energy_${suffix}`]) / 4.184)
       : null);

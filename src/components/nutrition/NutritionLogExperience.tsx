@@ -12,6 +12,7 @@ import {
   updateNutritionEntry,
 } from "@/app/actions/nutrition";
 import { BarcodeScanPanel } from "@/components/nutrition/BarcodeScanPanel";
+import { ManualNutritionForm } from "@/components/nutrition/ManualNutritionForm";
 import { NutritionConfirmDialog } from "@/components/nutrition/NutritionConfirmDialog";
 import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySummary";
 import { NutritionDescriptionInput } from "@/components/nutrition/NutritionDescriptionInput";
@@ -20,6 +21,7 @@ import {
   NutritionRecentFoodEditor,
   type RecentFoodLogValues,
 } from "@/components/nutrition/NutritionRecentFoodEditor";
+import { PhotoEstimatePanel } from "@/components/nutrition/PhotoEstimatePanel";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
@@ -47,7 +49,7 @@ import {
 } from "@/lib/nutrition";
 import { consumePendingFoodLog } from "@/lib/pending-food-log";
 
-type EntryMode = "search" | "describe" | "barcode";
+type EntryMode = "compose" | "barcode" | "manual" | "photo" | "describe";
 
 const PRIMARY_MEALS = ["breakfast", "lunch", "snack", "dinner"] as const;
 
@@ -109,6 +111,7 @@ export function NutritionLogExperience({
   const [recentFood, setRecentFood] = useState<{
     entry: NutritionEntryRecord;
     estimate: NutritionEstimate;
+    alreadyPortioned?: boolean;
   } | null>(null);
   const [summary, setSummary] = useState<NutritionDaySummary | null>(null);
   const [entries, setEntries] = useState<NutritionEntryRecord[]>([]);
@@ -126,7 +129,7 @@ export function NutritionLogExperience({
   const [deletePending, setDeletePending] = useState(false);
   const [inspirationError, setInspirationError] = useState<string | null>(null);
   const [inspirationPending, startInspiration] = useTransition();
-  const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
+  const [entryMode, setEntryMode] = useState<EntryMode | null>("compose");
   const [promptMealSelection, setPromptMealSelection] = useState(false);
   const [barcodeMeta, setBarcodeMeta] = useState<{
     barcode: string;
@@ -353,10 +356,48 @@ export function NutritionLogExperience({
       return;
     }
 
+    if (result.status === "needs_review") {
+      setEstimate(result.estimate);
+      setSaveError(result.message);
+      setClarificationAnswer("");
+      setEditing(null);
+      return;
+    }
+
     if (result.status !== "ok") {
       setSaveError(result.message);
       setEditing("status");
       return;
+    }
+
+    // Scaled from a saved food — open the structured quantity editor.
+    if (result.reusedEntryId) {
+      const match =
+        entries.find((entry) => entry.id === result.reusedEntryId) ?? null;
+      if (match) {
+        const meal =
+          draft.mealType ??
+          suggestMealType({ now: new Date(), eatenMealTypes });
+        setRecentFood({
+          entry: {
+            ...match,
+            description,
+            meal_type: meal,
+            calories_estimated: result.estimate.calories,
+            protein_g_estimated: result.estimate.proteinG,
+            carbs_g_estimated: result.estimate.carbsG,
+            fat_g_estimated: result.estimate.fatG,
+            estimation_source: result.estimate.source,
+            estimation_confidence: result.estimate.confidence,
+          },
+          estimate: result.estimate,
+        });
+        setPromptMealSelection(true);
+        setEstimate(null);
+        setClarificationAnswer("");
+        setEditing(null);
+        return;
+      }
     }
 
     setEstimate(result.estimate);
@@ -428,7 +469,7 @@ export function NutritionLogExperience({
     setFromSuggestion(false);
     setRecentFood(null);
     setBarcodeMeta(null);
-    setEntryMode(null);
+    setEntryMode("compose");
     setPromptMealSelection(false);
     setEditing(null);
     setSaveError(null);
@@ -785,123 +826,258 @@ export function NutritionLogExperience({
                 suggestedMealType
               }
               promptMealSelection={promptMealSelection}
+              alreadyPortioned={recentFood.alreadyPortioned}
               saving={saving}
               error={saveError}
               onCancel={resetDescriptionFlow}
               onLog={(values) => void handleRecentFoodLog(values)}
             />
-          ) : entryMode === null && !draft.description ? (
+          ) : entryMode === "barcode" && !draft.description ? (
+            <BarcodeScanPanel
+              disabled={saving}
+              onCancel={() => {
+                setEntryMode("compose");
+                setBarcodeMeta(null);
+              }}
+              onConfirm={(payload) => {
+                beginEdit();
+                const meal =
+                  draft.mealType ??
+                  suggestMealType({
+                    now: new Date(),
+                    eatenMealTypes,
+                  });
+                setBarcodeMeta({
+                  barcode: payload.barcode,
+                  brand: payload.brand,
+                });
+                const estimateWithName = {
+                  ...payload.estimate,
+                  displayName: payload.displayName,
+                };
+                // Review via structured editor — never auto-save from a scan.
+                setRecentFood({
+                  entry: {
+                    id: `barcode-${payload.barcode}`,
+                    logged_date: getLocalLoggedDate(),
+                    meal_type: meal,
+                    description: payload.description,
+                    display_name: payload.displayName,
+                    search_aliases: [],
+                    barcode: payload.barcode,
+                    brand: payload.brand,
+                    status: "eaten",
+                    calories_estimated: estimateWithName.calories,
+                    protein_g_estimated: estimateWithName.proteinG,
+                    carbs_g_estimated: estimateWithName.carbsG,
+                    fat_g_estimated: estimateWithName.fatG,
+                    estimation_confidence: estimateWithName.confidence,
+                    estimation_source: "open_food_facts",
+                    created_at: new Date().toISOString(),
+                  },
+                  estimate: estimateWithName,
+                  alreadyPortioned: true,
+                });
+                setDraft({
+                  ...emptyDraft,
+                  mealType: meal,
+                  mealTypeSkipped: false,
+                });
+                setPromptMealSelection(true);
+                setEstimate(null);
+                setPendingEstimate(null);
+                setClarificationQuestion(null);
+                setFromSuggestion(false);
+                setEntryMode("compose");
+                setEditing(null);
+              }}
+            />
+          ) : entryMode === "manual" && !draft.description ? (
+            <ManualNutritionForm
+              initialMealType={draft.mealType ?? suggestedMealType}
+              saving={saving}
+              error={saveError}
+              onCancel={() => setEntryMode("compose")}
+              onSave={(values) => {
+                void handleRecentFoodLog({
+                  description: values.description,
+                  mealType: values.mealType,
+                  status: values.status,
+                  estimate: values.estimate,
+                });
+              }}
+            />
+          ) : entryMode === "photo" && !draft.description ? (
+            <PhotoEstimatePanel
+              disabled={saving}
+              onCancel={() => setEntryMode("compose")}
+              onEstimated={(result) => {
+                beginEdit();
+                setSaveError(result.notice);
+                setDraft((current) => ({
+                  ...current,
+                  description: result.description,
+                  mealTypeSkipped: false,
+                  status: "eaten",
+                }));
+                setEstimate({
+                  ...result.estimate,
+                  confidence: "low",
+                });
+                setEntryMode("describe");
+                setEditing(null);
+              }}
+            />
+          ) : !draft.description && entryMode !== "describe" ? (
             <>
-              <CoachMessage>How do you want to add this?</CoachMessage>
-              <div className="flex flex-col gap-2 pl-10">
-                {(
-                  [
-                    {
-                      id: "search" as const,
-                      label: "Search foods",
-                      hint: "Find something you’ve logged before",
-                    },
-                    {
-                      id: "describe" as const,
-                      label: "Describe what you ate",
-                      hint: "AI estimates nutrition from your words",
-                    },
-                    {
-                      id: "barcode" as const,
-                      label: "Scan barcode",
-                      hint: "Look up a packaged product",
-                    },
-                  ] as const
-                ).map((option) => (
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+                  Meal
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(
+                    ["breakfast", "lunch", "dinner", "snack"] as const
+                  ).map((meal) => {
+                    const selected = draft.mealType === meal;
+                    return (
+                      <button
+                        key={meal}
+                        type="button"
+                        onClick={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            mealType: meal,
+                            mealTypeSkipped: false,
+                          }))
+                        }
+                        className={`rounded-full border px-3.5 py-2 text-[13px] transition-colors ${
+                          selected
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border text-foreground hover:border-white/20"
+                        }`}
+                      >
+                        {labelForMealType(meal)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <NutritionDescriptionInput
+                      key={composerKey}
+                      label="Search or describe food"
+                      placeholder="Search recent foods or describe a meal…"
+                      enableSuggestions
+                      onSubmit={(description) => {
+                        beginEdit();
+                        setRecentFood(null);
+                        setBarcodeMeta(null);
+                        setDraft((current) => ({
+                          ...current,
+                          description,
+                          mealTypeSkipped: false,
+                          status: current.status,
+                        }));
+                        setEstimate(null);
+                        setPendingEstimate(null);
+                        setClarificationQuestion(null);
+                        setFromSuggestion(false);
+                        setEntryMode("describe");
+                        setEditing(null);
+                      }}
+                      onSelectSuggestion={applySuggestion}
+                    />
+                  </div>
                   <button
-                    key={option.id}
                     type="button"
+                    aria-label="Scan barcode"
+                    title="Scan barcode"
                     onClick={() => {
                       beginEdit();
-                      setEntryMode(option.id);
-                      setComposerKey((key) => key + 1);
+                      setEntryMode("barcode");
                     }}
-                    className="flex flex-col items-start rounded-2xl border border-border/80 px-4 py-3 text-left transition-colors hover:border-white/16 hover:bg-white/[0.03]"
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border text-[15px] text-foreground hover:border-white/20"
                   >
-                    <span className="text-[15px] text-foreground">
-                      {option.label}
-                    </span>
-                    <span className="mt-0.5 text-[12px] text-muted">
-                      {option.hint}
-                    </span>
+                    ⌗
                   </button>
-                ))}
-              </div>
-            </>
-          ) : entryMode === "barcode" && !draft.description ? (
-            <>
-              <CoachMessage>Scan a barcode or enter it manually.</CoachMessage>
-              <div className="pl-10">
-                <BarcodeScanPanel
-                  disabled={saving}
-                  onCancel={() => {
-                    setEntryMode(null);
-                    setBarcodeMeta(null);
-                  }}
-                  onConfirm={(payload) => {
+                  <button
+                    type="button"
+                    aria-label="Estimate from photo"
+                    title="Estimate from photo"
+                    onClick={() => {
+                      beginEdit();
+                      setEntryMode("photo");
+                    }}
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border text-[15px] text-foreground hover:border-white/20"
+                  >
+                    ▣
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
                     beginEdit();
-                    const meal = suggestMealType({
-                      now: new Date(),
-                      eatenMealTypes,
-                    });
-                    setBarcodeMeta({
-                      barcode: payload.barcode,
-                      brand: payload.brand,
-                    });
-                    const estimateWithName = {
-                      ...payload.estimate,
-                      displayName: payload.displayName,
-                    };
-                    // Review via structured editor — never auto-save from a scan.
-                    setRecentFood({
-                      entry: {
-                        id: `barcode-${payload.barcode}`,
-                        logged_date: getLocalLoggedDate(),
-                        meal_type: meal,
-                        description: payload.description,
-                        display_name: payload.displayName,
-                        search_aliases: [],
-                        barcode: payload.barcode,
-                        brand: payload.brand,
-                        status: "eaten",
-                        calories_estimated: estimateWithName.calories,
-                        protein_g_estimated: estimateWithName.proteinG,
-                        carbs_g_estimated: estimateWithName.carbsG,
-                        fat_g_estimated: estimateWithName.fatG,
-                        estimation_confidence: estimateWithName.confidence,
-                        estimation_source: "open_food_facts",
-                        created_at: new Date().toISOString(),
-                      },
-                      estimate: estimateWithName,
-                    });
-                    setDraft({
-                      ...emptyDraft,
-                      mealType: meal,
-                      mealTypeSkipped: false,
-                    });
-                    setPromptMealSelection(true);
-                    setEstimate(null);
-                    setPendingEstimate(null);
-                    setClarificationQuestion(null);
-                    setFromSuggestion(false);
-                    setEntryMode(null);
-                    setEditing(null);
+                    setEntryMode("manual");
                   }}
-                />
+                  className="mt-3 text-[13px] text-muted underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Enter nutrition manually
+                </button>
               </div>
+
+              {entries.filter((entry) => entry.calories_estimated != null)
+                .length > 0 ? (
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
+                    Recent foods
+                  </p>
+                  <ul className="mt-3 divide-y divide-border/70 rounded-2xl border border-border/70">
+                    {entries
+                      .filter((entry) => entry.calories_estimated != null)
+                      .filter((entry, index, list) => {
+                        const key = entryDisplayTitle(entry)
+                          .trim()
+                          .toLowerCase();
+                        return (
+                          list.findIndex(
+                            (other) =>
+                              entryDisplayTitle(other).trim().toLowerCase() ===
+                              key,
+                          ) === index
+                        );
+                      })
+                      .slice(0, 8)
+                      .map((entry) => {
+                        const line = formatEntryNutritionLine(entry);
+                        return (
+                          <li key={entry.id}>
+                            <button
+                              type="button"
+                              onClick={() => applySuggestion(entry)}
+                              className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                            >
+                              <span className="text-[14px] text-foreground">
+                                {entryDisplayTitle(entry)}
+                              </span>
+                              {line ? (
+                                <span className="text-[12px] text-muted">
+                                  {line}
+                                </span>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </div>
+              ) : null}
             </>
           ) : (
             <>
-              <CoachMessage>
-                {entryMode === "search"
-                  ? "Search your recent foods, or type something new."
-                  : "What have you eaten?"}
-              </CoachMessage>
+              <CoachMessage>What have you eaten?</CoachMessage>
               {draft.description && step !== "description" ? (
                 <UserResponse
                   label={draft.description}
@@ -920,6 +1096,7 @@ export function NutritionLogExperience({
                       mealType: current.mealType,
                       mealTypeSkipped: current.mealTypeSkipped,
                     }));
+                    setEntryMode("compose");
                     setEditing(null);
                     setComposerKey((key) => key + 1);
                   }}
@@ -928,12 +1105,8 @@ export function NutritionLogExperience({
                 <NutritionDescriptionInput
                   key={composerKey}
                   label="What you’ve eaten"
-                  placeholder={
-                    entryMode === "search"
-                      ? "Search recent foods…"
-                      : "e.g. Eggs and toast"
-                  }
-                  enableSuggestions={entryMode !== "describe"}
+                  placeholder="e.g. Eggs and toast"
+                  enableSuggestions
                   onSubmit={(description) => {
                     beginEdit();
                     setRecentFood(null);

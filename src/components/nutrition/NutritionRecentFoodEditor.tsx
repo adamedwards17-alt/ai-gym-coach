@@ -11,6 +11,12 @@ import {
   type NutritionEntryStatus,
   type NutritionEstimate,
 } from "@/lib/nutrition";
+import {
+  looksAlreadyPortioned,
+  parseGramsFromText,
+  rewriteDescriptionForQuantity,
+  scaleMacrosByFactor,
+} from "@/lib/nutrition-quantity";
 
 const QUANTITY_PRESETS = [0.5, 1, 1.5, 2, 2.5, 3] as const;
 
@@ -38,6 +44,11 @@ type NutritionRecentFoodEditorProps = {
   initialMealType?: MealTypeId | null;
   /** When true, expand meal selection and ask "Which meal is this for?" */
   promptMealSelection?: boolean;
+  /**
+   * When the base estimate already includes a chosen portion (e.g. barcode grams),
+   * quantity multipliers are relative to that portion — default stays 1×.
+   */
+  alreadyPortioned?: boolean;
   saving: boolean;
   error: string | null;
   onCancel: () => void;
@@ -51,18 +62,6 @@ function roundMacro(value: number, field: MacroField): number {
   return Math.max(0, Math.round(value * 10) / 10);
 }
 
-function scaleEstimate(
-  base: Pick<NutritionEstimate, "calories" | "proteinG" | "carbsG" | "fatG">,
-  quantity: number,
-): Pick<NutritionEstimate, "calories" | "proteinG" | "carbsG" | "fatG"> {
-  return {
-    calories: roundMacro(base.calories * quantity, "calories"),
-    proteinG: roundMacro(base.proteinG * quantity, "proteinG"),
-    carbsG: roundMacro(base.carbsG * quantity, "carbsG"),
-    fatG: roundMacro(base.fatG * quantity, "fatG"),
-  };
-}
-
 function formatQuantity(value: number): string {
   return Number.isInteger(value) ? `${value}` : value.toFixed(1);
 }
@@ -72,11 +71,16 @@ export function NutritionRecentFoodEditor({
   baseEstimate,
   initialMealType = null,
   promptMealSelection = false,
+  alreadyPortioned = false,
   saving,
   error,
   onCancel,
   onLog,
 }: NutritionRecentFoodEditorProps) {
+  const portioned =
+    alreadyPortioned || looksAlreadyPortioned(entry.description);
+  const baseGrams = parseGramsFromText(entry.description);
+
   const [quantity, setQuantity] = useState(1);
   const [perServing, setPerServing] = useState({
     calories: baseEstimate.calories,
@@ -94,7 +98,7 @@ export function NutritionRecentFoodEditor({
   const [manualSource, setManualSource] = useState(false);
 
   const macros = useMemo(
-    () => scaleEstimate(perServing, quantity),
+    () => scaleMacrosByFactor(perServing, quantity),
     [perServing, quantity],
   );
 
@@ -149,7 +153,13 @@ export function NutritionRecentFoodEditor({
 
       <div className="mt-5 divide-y divide-border/70 rounded-2xl border border-border/70 bg-background/40">
         <EditorLine
-          label="Quantity / serving"
+          label={
+            portioned
+              ? baseGrams != null
+                ? `Quantity (relative to ${formatQuantity(baseGrams)} g)`
+                : "Quantity (relative to scanned portion)"
+              : "Quantity / serving"
+          }
           value={`${formatQuantity(quantity)}×`}
           expanded={expanded === "quantity"}
           onToggle={() => toggleRow("quantity")}
@@ -317,9 +327,21 @@ export function NutritionRecentFoodEditor({
         type="button"
         disabled={saving}
         className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-foreground text-[15px] font-medium text-background disabled:opacity-60"
-        onClick={() =>
+        onClick={() => {
+          const toGrams =
+            baseGrams != null && quantity !== 1
+              ? Math.round(baseGrams * quantity * 10) / 10
+              : null;
+          const description = rewriteDescriptionForQuantity(
+            entry.description,
+            {
+              factor: quantity,
+              fromGrams: baseGrams,
+              toGrams,
+            },
+          );
           onLog({
-            description: entry.description,
+            description,
             mealType,
             status,
             estimate: {
@@ -330,10 +352,13 @@ export function NutritionRecentFoodEditor({
               confidence: baseEstimate.confidence,
               source:
                 manualSource || quantity !== 1 ? "user" : baseEstimate.source,
+              displayName:
+                baseEstimate.displayName ?? entry.display_name ?? null,
+              searchAliases: entry.search_aliases ?? [],
               items: [],
             },
-          })
-        }
+          });
+        }}
       >
         {saving ? "Logging…" : "Log food"}
       </button>

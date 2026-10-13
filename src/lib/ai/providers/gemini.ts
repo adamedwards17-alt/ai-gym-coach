@@ -10,6 +10,7 @@ import {
 import {
   buildFoodEstimateUserPrompt,
   FOOD_ESTIMATE_SYSTEM_PROMPT,
+  FOOD_PHOTO_ESTIMATE_SYSTEM_PROMPT,
 } from "@/lib/ai/food-estimate-prompt";
 import type {
   AiProvider,
@@ -18,6 +19,7 @@ import type {
   CoachGenerationContext,
   FoodEstimateGenerationResult,
   FoodEstimateRequest,
+  FoodPhotoEstimateRequest,
 } from "@/lib/ai/types";
 
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
@@ -130,6 +132,52 @@ export class GeminiProvider implements AiProvider {
     const text = response.text?.trim();
     if (!text) {
       throw new Error("Gemini returned an empty food estimate");
+    }
+
+    return { rawText: text };
+  }
+
+  async estimateFoodNutritionFromPhoto(
+    input: FoodPhotoEstimateRequest,
+  ): Promise<FoodEstimateGenerationResult> {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not configured");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const note = input.note?.trim()
+      ? `\nUser note: ${input.note.trim()}`
+      : "";
+    const response = await ai.models.generateContent({
+      model: getGeminiModel(),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `Estimate the nutrition in this meal photo. Prefer itemising components. Label uncertainty honestly.${note}`,
+            },
+            {
+              inlineData: {
+                mimeType: input.mimeType,
+                data: input.imageBase64,
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        systemInstruction: FOOD_PHOTO_ESTIMATE_SYSTEM_PROMPT,
+        temperature: 0.2,
+        maxOutputTokens: 1000,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const text = response.text?.trim();
+    if (!text) {
+      throw new Error("Gemini returned an empty photo food estimate");
     }
 
     return { rawText: text };

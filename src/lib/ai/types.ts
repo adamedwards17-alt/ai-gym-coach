@@ -268,10 +268,19 @@ export type FoodEstimateRequest = {
   skipClarification?: boolean;
 };
 
+export type FoodPhotoEstimateRequest = {
+  imageBase64: string;
+  mimeType: string;
+  note?: string | null;
+};
+
 export interface AiProvider {
   generateCoachTake(context: CoachGenerationContext): Promise<string>;
   generateCoachChat(context: CoachChatContext): Promise<CoachChatGenerationResult>;
   estimateFoodNutrition(
     input: FoodEstimateRequest,
+  ): Promise<FoodEstimateGenerationResult>;
+  estimateFoodNutritionFromPhoto?(
+    input: FoodPhotoEstimateRequest,
   ): Promise<FoodEstimateGenerationResult>;
 }

@@ -347,6 +347,9 @@ export function BarcodeScanPanel({
         // Ignore.
       }
       zxingControlsRef.current = null;
+      // Do not stop the MediaStream here — React Strict Mode remounts would
+      // kill a freshly granted stream. stopStream runs on unmount, manual
+      // entry, successful lookup, and before requesting a new stream.
     };
   }, [step, runLookup, stopStream]);
 
@@ -361,8 +364,38 @@ export function BarcodeScanPanel({
       return;
     }
 
+    // Reuse an existing live stream if the user re-opens the scanner quickly.
+    if (streamRef.current) {
+      const live = streamRef.current
+        .getTracks()
+        .some((track) => track.readyState === "live");
+      if (live) {
+        setStep("scan");
+        return;
+      }
+      stopStream();
+    }
+
+    // If the browser already denied camera access, skip prompting again.
+    try {
+      const permissions = navigator.permissions;
+      if (permissions && typeof permissions.query === "function") {
+        const status = await permissions.query({
+          name: "camera" as PermissionName,
+        });
+        if (status.state === "denied") {
+          setNotice(cameraPermissionMessage("NotAllowedError"));
+          setStep("manual");
+          return;
+        }
+      }
+    } catch {
+      // permissions.query is not supported everywhere — fall through to getUserMedia.
+    }
+
     setStartingCamera(true);
     try {
+      stopStream();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
