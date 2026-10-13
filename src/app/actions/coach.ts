@@ -16,6 +16,7 @@ import {
 } from "@/lib/ai/providers/gemini";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isCoachAffirmation } from "@/lib/coach-affirmation";
+import type { CoachChatContext } from "@/lib/ai/types";
 import {
   isValidCoachDate,
   parseCoachChatResponse,
@@ -23,6 +24,13 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import {
+  COACH_ATTACHMENT_BUCKET,
+  coachAttachmentObjectPath,
+  coachImageOnlyContent,
+  validateCoachAudioAttachment,
+  validateCoachImageAttachment,
+} from "@/lib/coach-attachments";
 import { parseCommutePattern } from "@/lib/activity-pattern";
 import {
   classifyCoachScope,
@@ -82,7 +90,15 @@ export type SendCoachMessageResult =
     };
 
 const CONVERSATION_SELECT = "id, title, created_at, updated_at";
-const MESSAGE_SELECT = "id, conversation_id, role, content, created_at";
+const MESSAGE_SELECT =
+  "id, conversation_id, role, content, created_at, attachment_path, attachment_mime_type, attachment_kind";
+
+/** Max recent images to send to the model (cost / token safety). */
+const MAX_INLINE_IMAGES_FOR_MODEL = 3;
+
+export type TranscribeCoachAudioResult =
+  | { status: "ok"; transcript: string }
+  | { status: "error"; message: string };
 
 function toConversation(
   row: Record<string, unknown>,
@@ -114,12 +130,104 @@ function toMessage(row: Record<string, unknown>): CoachMessageRecord | null {
     return null;
   }
 
+  const attachmentKind =
+    row.attachment_kind === "image" ? ("image" as const) : null;
+  const attachmentPath =
+    typeof row.attachment_path === "string" && row.attachment_path.length > 0
+      ? row.attachment_path
+      : null;
+  const attachmentMimeType =
+    typeof row.attachment_mime_type === "string"
+      ? row.attachment_mime_type
+      : null;
+
   return {
     id: row.id,
     conversation_id: row.conversation_id,
     role: row.role,
     content: row.content,
     created_at: row.created_at,
+    attachment_path: attachmentKind ? attachmentPath : null,
+    attachment_mime_type: attachmentKind ? attachmentMimeType : null,
+    attachment_kind: attachmentKind,
+    attachment_url: null,
+  };
+}
+
+async function withSignedAttachmentUrls(
+  messages: CoachMessageRecord[],
+): Promise<CoachMessageRecord[]> {
+  const supabase = await createClient();
+  return Promise.all(
+    messages.map(async (message) => {
+      if (!message.attachment_path || message.attachment_kind !== "image") {
+        return message;
+      }
+      const { data, error } = await supabase.storage
+        .from(COACH_ATTACHMENT_BUCKET)
+        .createSignedUrl(message.attachment_path, 60 * 60);
+      if (error || !data?.signedUrl) {
+        console.error(
+          "[coach] Signed URL failed:",
+          error?.message ?? "No URL",
+        );
+        return message;
+      }
+      return { ...message, attachment_url: data.signedUrl };
+    }),
+  );
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const cleaned = base64.replace(/\s+/g, "");
+  const binary = Buffer.from(cleaned, "base64");
+  return new Uint8Array(binary);
+}
+
+async function hydrateCoachChatImages(
+  context: CoachChatContext,
+  userId: string,
+): Promise<CoachChatContext> {
+  const supabase = await createClient();
+  const messages = [...context.conversation.messages];
+  let remaining = MAX_INLINE_IMAGES_FOR_MODEL;
+
+  // Prefer newest images first so the latest menu photo is always included.
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    if (!message.attachmentPath || remaining <= 0) {
+      continue;
+    }
+    if (!message.attachmentPath.startsWith(`${userId}/`)) {
+      continue;
+    }
+    const { data, error } = await supabase.storage
+      .from(COACH_ATTACHMENT_BUCKET)
+      .download(message.attachmentPath);
+    if (error || !data) {
+      console.error(
+        "[coach] Attachment download failed:",
+        error?.message ?? "No data",
+      );
+      continue;
+    }
+    const buffer = Buffer.from(await data.arrayBuffer());
+    messages[i] = {
+      ...message,
+      imageInline: {
+        mimeType: message.attachmentMimeType || "image/jpeg",
+        data: buffer.toString("base64"),
+      },
+    };
+    remaining -= 1;
+  }
+
+  return {
+    ...context,
+    conversation: {
+      ...context.conversation,
+      messages,
+    },
   };
 }
 
@@ -162,9 +270,11 @@ async function loadMessages(
     return [];
   }
 
-  return (data ?? [])
+  const messages = (data ?? [])
     .map((row) => toMessage(row as Record<string, unknown>))
     .filter((row): row is CoachMessageRecord => row !== null);
+
+  return withSignedAttachmentUrls(messages);
 }
 
 export async function listCoachConversations(): Promise<ListConversationsResult> {
@@ -500,11 +610,12 @@ async function generateAndPersistReply(input: {
   }
 
   try {
-    const context = await buildCoachContext({
+    const rawContext = await buildCoachContext({
       userId: input.userId,
       conversationId: input.conversationId,
       localDate: input.localDate,
     });
+    const context = await hydrateCoachChatImages(rawContext, input.userId);
 
     const provider = new GeminiProvider();
     const { rawText } = await provider.generateCoachChat(context);
@@ -862,14 +973,40 @@ export async function sendCoachMessage(input: {
   conversationId: string;
   content: string;
   localDate: string;
+  /** Optional image attachment (base64, no data-URL prefix). */
+  imageBase64?: string | null;
+  imageMimeType?: string | null;
 }): Promise<SendCoachMessageResult> {
   if (!isValidCoachDate(input.localDate)) {
     return { status: "error", message: "That date isn’t valid." };
   }
 
-  const content = input.content.trim();
-  if (!content) {
+  const hasImage =
+    typeof input.imageBase64 === "string" && input.imageBase64.length > 0;
+  let content = input.content.trim();
+  if (!content && !hasImage) {
     return { status: "error", message: "Write a message for your coach." };
+  }
+  if (!content && hasImage) {
+    content = coachImageOnlyContent();
+  }
+
+  let imageMeta: {
+    mimeType: string;
+    base64: string;
+  } | null = null;
+  if (hasImage) {
+    const validated = validateCoachImageAttachment({
+      imageBase64: input.imageBase64!,
+      mimeType: input.imageMimeType ?? "image/jpeg",
+    });
+    if (!validated.ok) {
+      return { status: "error", message: validated.message };
+    }
+    imageMeta = {
+      mimeType: validated.mimeType,
+      base64: input.imageBase64!.replace(/\s+/g, ""),
+    };
   }
 
   if (!isSupabaseConfigured()) {
@@ -894,15 +1031,54 @@ export async function sendCoachMessage(input: {
 
   try {
     const supabase = await createClient();
+
+    let attachmentPath: string | null = null;
+    let attachmentMimeType: string | null = null;
+    let attachmentKind: "image" | null = null;
+
+    if (imageMeta) {
+      const fileId = crypto.randomUUID();
+      attachmentPath = coachAttachmentObjectPath(
+        user.id,
+        input.conversationId,
+        fileId,
+        imageMeta.mimeType,
+      );
+      const bytes = base64ToUint8Array(imageMeta.base64);
+      const { error: uploadError } = await supabase.storage
+        .from(COACH_ATTACHMENT_BUCKET)
+        .upload(attachmentPath, bytes, {
+          contentType: imageMeta.mimeType,
+          upsert: false,
+        });
+      if (uploadError) {
+        console.error("[coach] Image upload failed:", uploadError.message);
+        return {
+          status: "error",
+          message: "That photo couldn’t be uploaded. Try again.",
+        };
+      }
+      attachmentMimeType = imageMeta.mimeType;
+      attachmentKind = "image";
+    }
+
     const { error: insertError } = await supabase.from("coach_messages").insert({
       conversation_id: input.conversationId,
       user_id: user.id,
       role: "user",
       content,
+      attachment_path: attachmentPath,
+      attachment_mime_type: attachmentMimeType,
+      attachment_kind: attachmentKind,
     });
 
     if (insertError) {
       console.error("[coach] User message save failed:", insertError.message);
+      if (attachmentPath) {
+        await supabase.storage
+          .from(COACH_ATTACHMENT_BUCKET)
+          .remove([attachmentPath]);
+      }
       return {
         status: "error",
         message: "Your message couldn’t be saved. Try again.",
@@ -1063,4 +1239,58 @@ export async function retryCoachReply(input: {
     localDate: input.localDate,
     firstUserContentForTitle: conversation.title ? null : last.content,
   });
+}
+
+/**
+ * Press-to-talk: transcribe recorded audio into draft text.
+ * Audio is not persisted — only the transcript is returned to the client.
+ */
+export async function transcribeCoachAudio(input: {
+  audioBase64: string;
+  mimeType: string;
+}): Promise<TranscribeCoachAudioResult> {
+  const validated = validateCoachAudioAttachment({
+    audioBase64: input.audioBase64,
+    mimeType: input.mimeType,
+  });
+  if (!validated.ok) {
+    return { status: "error", message: validated.message };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  if (!isGeminiConfigured()) {
+    return {
+      status: "error",
+      message:
+        "Voice input isn’t connected right now. Check GEMINI_API_KEY and try again.",
+    };
+  }
+
+  try {
+    const provider = new GeminiProvider();
+    const { transcript } = await provider.transcribeCoachAudio({
+      audioBase64: input.audioBase64.replace(/\s+/g, ""),
+      mimeType: validated.mimeType,
+    });
+    const cleaned = transcript.trim();
+    if (!cleaned) {
+      return {
+        status: "error",
+        message: "I couldn’t catch that. Try recording again.",
+      };
+    }
+    return { status: "ok", transcript: cleaned };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown transcription error";
+    console.error("[coach] Transcription failed:", message);
+    return {
+      status: "error",
+      message: "That recording couldn’t be transcribed. Try again.",
+    };
+  }
 }

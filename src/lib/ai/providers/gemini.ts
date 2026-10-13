@@ -14,6 +14,8 @@ import {
 } from "@/lib/ai/food-estimate-prompt";
 import type {
   AiProvider,
+  CoachAudioTranscriptionRequest,
+  CoachAudioTranscriptionResult,
   CoachChatContext,
   CoachChatGenerationResult,
   CoachGenerationContext,
@@ -79,12 +81,34 @@ export class GeminiProvider implements AiProvider {
     const contextBlock = buildCoachChatContextPrompt(context);
     const systemInstruction = `${COACH_CHAT_SYSTEM_PROMPT}\n\n${contextBlock}`;
 
-    const contents = context.conversation.messages.map((message) => ({
-      role: (message.role === "assistant" ? "model" : "user") as
-        | "user"
-        | "model",
-      parts: [{ text: message.content }],
-    }));
+    const contents = context.conversation.messages.map((message) => {
+      const parts: Array<
+        { text: string } | { inlineData: { mimeType: string; data: string } }
+      > = [];
+      const text =
+        message.content.trim() ||
+        (message.imageInline ? "Please look at this photo." : "");
+      if (text) {
+        parts.push({ text });
+      }
+      if (message.imageInline?.data && message.imageInline.mimeType) {
+        parts.push({
+          inlineData: {
+            mimeType: message.imageInline.mimeType,
+            data: message.imageInline.data,
+          },
+        });
+      }
+      if (parts.length === 0) {
+        parts.push({ text: message.content || "(empty message)" });
+      }
+      return {
+        role: (message.role === "assistant" ? "model" : "user") as
+          | "user"
+          | "model",
+        parts,
+      };
+    });
 
     if (contents.length === 0) {
       throw new Error("Coach chat has no messages to reply to");
@@ -107,6 +131,43 @@ export class GeminiProvider implements AiProvider {
     }
 
     return { rawText: text };
+  }
+
+  async transcribeCoachAudio(
+    input: CoachAudioTranscriptionRequest,
+  ): Promise<CoachAudioTranscriptionResult> {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not configured");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: getGeminiModel(),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: "Transcribe the spoken words in this audio into plain text for a fitness coaching chat. Return only the transcript — no quotes, labels, or commentary. If there is no clear speech, return an empty string.",
+            },
+            {
+              inlineData: {
+                mimeType: input.mimeType,
+                data: input.audioBase64,
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        temperature: 0,
+        maxOutputTokens: 800,
+      },
+    });
+
+    const transcript = response.text?.trim() ?? "";
+    return { transcript };
   }
 
   async estimateFoodNutrition(

@@ -234,7 +234,9 @@ export async function buildCoachContext(input: {
       .maybeSingle(),
     supabase
       .from("coach_messages")
-      .select("role, content, created_at")
+      .select(
+        "role, content, created_at, attachment_path, attachment_mime_type, attachment_kind",
+      )
       .eq("conversation_id", input.conversationId)
       .eq("user_id", input.userId)
       .order("created_at", { ascending: true })
@@ -776,11 +778,32 @@ export async function buildCoachContext(input: {
         ) {
           return null;
         }
-        return { role: record.role, content: record.content };
+        const attachmentPath =
+          typeof record.attachment_path === "string" &&
+          record.attachment_path.length > 0 &&
+          record.attachment_kind === "image"
+            ? record.attachment_path
+            : null;
+        const attachmentMimeType =
+          typeof record.attachment_mime_type === "string"
+            ? record.attachment_mime_type
+            : null;
+        return {
+          role: record.role,
+          content: record.content,
+          attachmentPath,
+          attachmentMimeType,
+        };
       })
       .filter(
-        (row): row is { role: "user" | "assistant"; content: string } =>
-          row !== null,
+        (
+          row,
+        ): row is {
+          role: "user" | "assistant";
+          content: string;
+          attachmentPath: string | null;
+          attachmentMimeType: string | null;
+        } => row !== null,
       ),
   );
 

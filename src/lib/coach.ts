@@ -26,6 +26,12 @@ export type CoachMessageRecord = {
   role: CoachMessageRole;
   content: string;
   created_at: string;
+  /** Private storage path when an image is attached. */
+  attachment_path: string | null;
+  attachment_mime_type: string | null;
+  attachment_kind: "image" | null;
+  /** Short-lived signed URL for UI display (not persisted). */
+  attachment_url: string | null;
 };
 
 export type CoachEventRecord = {

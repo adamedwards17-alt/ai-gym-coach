@@ -187,9 +187,20 @@ export type CoachChatEventContext = {
   summary: string;
 };
 
+export type CoachChatMessageImageInline = {
+  mimeType: string;
+  /** Base64 without data-URL prefix. */
+  data: string;
+};
+
 export type CoachChatMessageContext = {
   role: CoachMessageRole;
   content: string;
+  /** Storage path when an image was attached (hydrated for the model separately). */
+  attachmentPath?: string | null;
+  attachmentMimeType?: string | null;
+  /** Populated just before the Gemini call — never stored in the DB. */
+  imageInline?: CoachChatMessageImageInline | null;
 };
 
 export type CoachStrengthPerformanceContext = {
@@ -283,6 +294,15 @@ export type FoodPhotoEstimateRequest = {
   note?: string | null;
 };
 
+export type CoachAudioTranscriptionRequest = {
+  audioBase64: string;
+  mimeType: string;
+};
+
+export type CoachAudioTranscriptionResult = {
+  transcript: string;
+};
+
 export interface AiProvider {
   generateCoachTake(context: CoachGenerationContext): Promise<string>;
   generateCoachChat(context: CoachChatContext): Promise<CoachChatGenerationResult>;
@@ -292,4 +312,7 @@ export interface AiProvider {
   estimateFoodNutritionFromPhoto?(
     input: FoodPhotoEstimateRequest,
   ): Promise<FoodEstimateGenerationResult>;
+  transcribeCoachAudio?(
+    input: CoachAudioTranscriptionRequest,
+  ): Promise<CoachAudioTranscriptionResult>;
 }

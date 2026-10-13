@@ -9,8 +9,13 @@ import {
   loadCoachConversation,
   retryCoachReply,
   sendCoachMessage,
+  transcribeCoachAudio,
 } from "@/app/actions/coach";
 import { listPendingTrainingProposals } from "@/app/actions/training";
+import {
+  CoachComposer,
+  type CoachComposerAttachment,
+} from "@/components/coach/CoachComposer";
 import { CoachPlanUpdateBundle } from "@/components/coach/CoachPlanUpdateBundle";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import {
@@ -18,6 +23,7 @@ import {
   type CoachConversationRecord,
   type CoachMessageRecord,
 } from "@/lib/coach";
+import { coachImageOnlyContent } from "@/lib/coach-attachments";
 import type { CoachChangeProposalRecord } from "@/lib/coach-change-proposals";
 import { getCoachLoadingMessage } from "@/lib/coach-loading";
 import {
@@ -111,22 +117,30 @@ export function CoachConversationExperience({
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending, proposals, changeProposals]);
 
-  function sendContent(content: string) {
+  function sendContent(
+    content: string,
+    image: CoachComposerAttachment | null = null,
+  ) {
     const trimmed = content.trim();
-    if (!trimmed || pending) {
+    if ((!trimmed && !image) || pending) {
       return;
     }
 
+    const displayContent = trimmed || coachImageOnlyContent();
     setDraft("");
     setError(null);
-    setLoadingMessage(getCoachLoadingMessage(trimmed));
+    setLoadingMessage(getCoachLoadingMessage(displayContent));
 
     const optimistic: CoachMessageRecord = {
-      id: `local-${conversationId}-${messages.length}-${trimmed.length}`,
+      id: `local-${conversationId}-${messages.length}-${displayContent.length}`,
       conversation_id: conversationId,
       role: "user",
-      content: trimmed,
+      content: displayContent,
       created_at: new Date(0).toISOString(),
+      attachment_path: image ? "pending" : null,
+      attachment_mime_type: image?.mimeType ?? null,
+      attachment_kind: image ? "image" : null,
+      attachment_url: image?.previewUrl ?? null,
     };
     setMessages((current) => [...current, optimistic]);
 
@@ -135,6 +149,8 @@ export function CoachConversationExperience({
         conversationId,
         content: trimmed,
         localDate: getLocalCoachDate(),
+        imageBase64: image?.imageBase64 ?? null,
+        imageMimeType: image?.mimeType ?? null,
       });
 
       if (result.status === "ok") {
@@ -154,10 +170,6 @@ export function CoachConversationExperience({
       }
       setError(result.message);
     });
-  }
-
-  function handleSend() {
-    sendContent(draft);
   }
 
   function handleRetry() {
@@ -266,9 +278,17 @@ export function CoachConversationExperience({
             <CoachMessage key={message.id}>{message.content}</CoachMessage>
           ) : (
             <div key={message.id} className="flex justify-end pl-10">
-              <p className="max-w-[90%] rounded-3xl rounded-br-md bg-white/[0.07] px-4 py-3 text-[15px] leading-7 text-foreground">
-                {message.content}
-              </p>
+              <div className="max-w-[90%] rounded-3xl rounded-br-md bg-white/[0.07] px-4 py-3 text-[15px] leading-7 text-foreground">
+                {message.attachment_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={message.attachment_url}
+                    alt="Attached photo"
+                    className="mb-2 max-h-48 w-full rounded-2xl object-cover"
+                  />
+                ) : null}
+                <p>{message.content}</p>
+              </div>
             </div>
           ),
         )}
@@ -328,41 +348,13 @@ export function CoachConversationExperience({
         </div>
       ) : null}
 
-      <form
-        className="sticky bottom-20 mt-8 sm:bottom-6"
-        onSubmit={(event) => {
-          event.preventDefault();
-          handleSend();
-        }}
-      >
-        <label className="sr-only" htmlFor="coach-composer">
-          Message your coach
-        </label>
-        <div className="flex items-end gap-2 rounded-full border border-border bg-surface/80 p-1.5 shadow-[0_0_0_1px_rgb(255_255_255/0.02)] backdrop-blur">
-          <textarea
-            id="coach-composer"
-            rows={1}
-            value={draft}
-            disabled={pending}
-            placeholder="Message your coach"
-            className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted disabled:opacity-60"
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          <button
-            type="submit"
-            disabled={pending || !draft.trim()}
-            className="inline-flex h-11 shrink-0 items-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:opacity-40"
-          >
-            Send
-          </button>
-        </div>
-      </form>
+      <CoachComposer
+        draft={draft}
+        pending={pending}
+        onDraftChange={setDraft}
+        onSend={({ content, image }) => sendContent(content, image)}
+        onTranscribe={transcribeCoachAudio}
+      />
     </div>
   );
 }
