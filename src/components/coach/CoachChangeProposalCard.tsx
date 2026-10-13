@@ -15,6 +15,7 @@ const KIND_LABEL: Record<CoachChangeProposalRecord["kind"], string> = {
   programme_phases: "Proposed programme update",
   activity_pattern: "Proposed activity update",
   goal: "Proposed goal update",
+  weekly_schedule: "Proposed weekly schedule",
 };
 
 export function CoachChangeProposalCard({

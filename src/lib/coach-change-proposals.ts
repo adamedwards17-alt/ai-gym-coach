@@ -1,13 +1,20 @@
 /**
- * Typed coach change proposals (nutrition, programme, activity, goal).
+ * Typed coach change proposals (nutrition, programme, activity, goal, weekly schedule).
  * Suggestions stay pending until explicitly accepted.
  */
+
+import {
+  describeWeeklySchedule,
+  parseWeeklySchedulePayload,
+  reviewWeeklySchedule,
+} from "@/lib/weekly-schedule";
 
 export type CoachChangeKind =
   | "nutrition_targets"
   | "programme_phases"
   | "activity_pattern"
-  | "goal";
+  | "goal"
+  | "weekly_schedule";
 
 export type CoachChangeProposalStatus =
   | "pending"
@@ -65,11 +72,23 @@ export type GoalProposalPayload = {
   goalInOwnWords?: string | null;
 };
 
+export type WeeklyScheduleProposalPayload = {
+  slots: Array<{
+    dayOfWeek: number;
+    slotType: string;
+    title: string;
+    templateCode?: string | null;
+    plannedDurationMinutes?: number | null;
+  }>;
+  weeksToReseed?: number;
+};
+
 export type CoachChangePayload =
   | NutritionTargetsProposalPayload
   | ProgrammePhasesProposalPayload
   | ActivityPatternProposalPayload
-  | GoalProposalPayload;
+  | GoalProposalPayload
+  | WeeklyScheduleProposalPayload;
 
 export type CoachChangeProposalRecord = {
   id: string;
@@ -107,6 +126,7 @@ const KINDS: readonly CoachChangeKind[] = [
   "programme_phases",
   "activity_pattern",
   "goal",
+  "weekly_schedule",
 ] as const;
 
 export function isCoachChangeKind(value: unknown): value is CoachChangeKind {
@@ -386,6 +406,25 @@ export function parseGoalProposalPayload(
   };
 }
 
+export function parseWeeklyScheduleProposalPayload(
+  raw: unknown,
+): WeeklyScheduleProposalPayload | null {
+  const parsed = parseWeeklySchedulePayload(raw);
+  if (!parsed) {
+    return null;
+  }
+  return {
+    slots: parsed.slots.map((slot) => ({
+      dayOfWeek: slot.dayOfWeek,
+      slotType: slot.slotType,
+      title: slot.title,
+      templateCode: slot.templateCode ?? null,
+      plannedDurationMinutes: slot.plannedDurationMinutes ?? null,
+    })),
+    weeksToReseed: parsed.weeksToReseed,
+  };
+}
+
 export function toCoachChangeProposalRecord(
   row: Record<string, unknown>,
 ): CoachChangeProposalRecord | null {
@@ -411,6 +450,8 @@ export function toCoachChangeProposalRecord(
     payload = parseActivityProposalPayload(row.payload);
   } else if (row.kind === "goal") {
     payload = parseGoalProposalPayload(row.payload);
+  } else if (row.kind === "weekly_schedule") {
+    payload = parseWeeklyScheduleProposalPayload(row.payload);
   }
   if (!payload) {
     return null;
@@ -489,6 +530,43 @@ export function describeCoachChangeProposal(
     }
     if (p.activityPatternNotes) {
       lines.push(p.activityPatternNotes);
+    }
+    return lines;
+  }
+  if (proposal.kind === "weekly_schedule") {
+    const p = proposal.payload as WeeklyScheduleProposalPayload;
+    const review = reviewWeeklySchedule(
+      p.slots.map((slot) => ({
+        dayOfWeek: slot.dayOfWeek,
+        slotType:
+          slot.slotType === "strength" ||
+          slot.slotType === "hiit" ||
+          slot.slotType === "rest" ||
+          slot.slotType === "other"
+            ? slot.slotType
+            : "other",
+        title: slot.title,
+        templateCode: slot.templateCode ?? null,
+        plannedDurationMinutes: slot.plannedDurationMinutes ?? null,
+      })),
+    );
+    const lines = describeWeeklySchedule(
+      p.slots.map((slot) => ({
+        dayOfWeek: slot.dayOfWeek,
+        slotType:
+          slot.slotType === "strength" ||
+          slot.slotType === "hiit" ||
+          slot.slotType === "rest" ||
+          slot.slotType === "other"
+            ? slot.slotType
+            : "other",
+        title: slot.title,
+        templateCode: slot.templateCode ?? null,
+        plannedDurationMinutes: slot.plannedDurationMinutes ?? null,
+      })),
+    );
+    if (review.recoveryNote) {
+      lines.push(review.recoveryNote);
     }
     return lines;
   }

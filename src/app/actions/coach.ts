@@ -24,6 +24,11 @@ import {
   type CoachMessageRecord,
 } from "@/lib/coach";
 import { parseCommutePattern } from "@/lib/activity-pattern";
+import {
+  classifyCoachScope,
+  coachOutOfScopeReply,
+  coachSafetyUrgentReply,
+} from "@/lib/coach-scope";
 import { buildGoalChangeCompanions } from "@/lib/ensure-goal-change-companions";
 import {
   MEAL_INSPIRATION_SEED_MESSAGE,
@@ -576,6 +581,22 @@ async function generateAndPersistReply(input: {
       }
     }
 
+    if (parsed.weeklyScheduleProposal) {
+      const weeklyResult = await createCoachChangeProposal({
+        conversationId: input.conversationId,
+        kind: "weekly_schedule",
+        reason: parsed.weeklyScheduleProposal.reason,
+        payload: parsed.weeklyScheduleProposal.payload,
+        idempotencyKey: `msg:${assistantRow.id}:weekly-schedule`,
+      });
+      if (weeklyResult.status === "error") {
+        console.error(
+          "[coach] Weekly schedule proposal save failed:",
+          weeklyResult.message,
+        );
+      }
+    }
+
     if (parsed.nutritionProposal) {
       const nutritionResult = await createCoachChangeProposal({
         conversationId: input.conversationId,
@@ -893,6 +914,61 @@ export async function sendCoachMessage(input: {
       .update({ updated_at: new Date().toISOString() })
       .eq("id", input.conversationId)
       .eq("user_id", user.id);
+
+    const scope = classifyCoachScope(content);
+    if (scope === "out_of_scope" || scope === "safety_urgent") {
+      const reply =
+        scope === "safety_urgent"
+          ? coachSafetyUrgentReply()
+          : coachOutOfScopeReply();
+      const { data: assistantRow, error: assistantError } = await supabase
+        .from("coach_messages")
+        .insert({
+          conversation_id: input.conversationId,
+          user_id: user.id,
+          role: "assistant",
+          content: reply,
+        })
+        .select(MESSAGE_SELECT)
+        .single();
+
+      if (assistantError || !assistantRow) {
+        console.error(
+          "[coach] Scoped reply save failed:",
+          assistantError?.message ?? "No row",
+        );
+        return {
+          status: "error",
+          message: "Your message couldn’t be sent. Try again.",
+        };
+      }
+
+      const messages = await loadMessages(input.conversationId, user.id);
+      let nextConversation = conversation;
+      if (!conversation.title) {
+        const title = titleFallbackFromMessage(content);
+        if (title) {
+          await supabase
+            .from("coach_conversations")
+            .update({ title, updated_at: new Date().toISOString() })
+            .eq("id", input.conversationId)
+            .eq("user_id", user.id);
+          nextConversation = { ...conversation, title };
+        }
+      } else {
+        await supabase
+          .from("coach_conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", input.conversationId)
+          .eq("user_id", user.id);
+      }
+
+      return {
+        status: "ok",
+        conversation: nextConversation,
+        messages,
+      };
+    }
 
     // Verbal confirmation: apply pending proposals before the next coach reply
     // so the model sees the updated canonical state and can confirm what saved.

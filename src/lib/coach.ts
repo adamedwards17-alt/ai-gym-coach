@@ -69,6 +69,11 @@ export type ParsedGoalProposalBlock = {
   payload: Record<string, unknown>;
 };
 
+export type ParsedWeeklyScheduleProposalBlock = {
+  reason: string | null;
+  payload: Record<string, unknown>;
+};
+
 export type ParsedCoachChatResponse = {
   reply: string;
   title: string | null;
@@ -78,6 +83,7 @@ export type ParsedCoachChatResponse = {
   programmeProposal: ParsedProgrammeProposalBlock | null;
   activityProposal: ParsedActivityProposalBlock | null;
   goalProposal: ParsedGoalProposalBlock | null;
+  weeklyScheduleProposal: ParsedWeeklyScheduleProposalBlock | null;
   structured: boolean;
 };
 
@@ -210,6 +216,7 @@ export function parseCoachChatResponse(
       programmeProposal: null,
       activityProposal: null,
       goalProposal: null,
+      weeklyScheduleProposal: null,
       structured: false,
     };
   }
@@ -321,6 +328,10 @@ export function parseCoachChatResponse(
       "activityProposal",
     ),
     goalProposal: parseNamedProposal("goal_proposal", "goalProposal"),
+    weeklyScheduleProposal: parseNamedProposal(
+      "weekly_schedule_proposal",
+      "weeklyScheduleProposal",
+    ),
     structured: true,
   };
 }

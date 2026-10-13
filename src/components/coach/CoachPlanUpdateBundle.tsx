@@ -21,6 +21,7 @@ const KIND_LABEL: Record<CoachChangeProposalRecord["kind"], string> = {
   programme_phases: "Programme",
   activity_pattern: "Activity",
   goal: "Goal",
+  weekly_schedule: "Weekly schedule",
 };
 
 export function CoachPlanUpdateBundle({
@@ -140,7 +141,9 @@ export function CoachPlanUpdateBundle({
                       ? 1
                       : kind === "nutrition_targets"
                         ? 2
-                        : 3;
+                        : kind === "weekly_schedule"
+                          ? 3
+                          : 4;
                 return rank(a.kind) - rank(b.kind);
               });
 

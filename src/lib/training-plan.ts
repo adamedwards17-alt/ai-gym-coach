@@ -10,6 +10,8 @@ import type {
   TrainingSessionRecord,
   TrainingTypeId,
 } from "@/lib/training";
+import { isValidSessionDate } from "@/lib/training";
+import { looksLikeWeekdayName } from "@/lib/weekly-schedule";
 
 export type SkipReasonId =
   | "too_busy"
@@ -208,6 +210,21 @@ export function parsePlanProposalChanges(
     } else if (typeof record.toDate === "string") {
       change.toDate = record.toDate;
     }
+
+    // Move requires a real calendar date — never weekday names from recurring
+    // schedule chat (those belong in weekly_schedule_proposal).
+    if (change.action === "move") {
+      if (!change.toDate) {
+        continue;
+      }
+      if (looksLikeWeekdayName(change.toDate)) {
+        continue;
+      }
+      if (!isValidSessionDate(change.toDate)) {
+        continue;
+      }
+    }
+
     const duration =
       record.planned_duration_minutes ?? record.plannedDurationMinutes;
     if (typeof duration === "number" && Number.isFinite(duration)) {

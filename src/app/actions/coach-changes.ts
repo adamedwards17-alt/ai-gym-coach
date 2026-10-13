@@ -14,8 +14,15 @@ import {
   parseGoalProposalPayload,
   parseNutritionProposalPayload,
   parseProgrammeProposalPayload,
+  parseWeeklyScheduleProposalPayload,
   toCoachChangeProposalRecord,
+  type WeeklyScheduleProposalPayload,
 } from "@/lib/coach-change-proposals";
+import {
+  completeWeeklySchedule,
+  type WeeklyScheduleSlot,
+} from "@/lib/weekly-schedule";
+import { addDays, startOfWeekMonday } from "@/lib/training-week";
 import { applyNutritionTargetsForUser } from "@/lib/nutrition-day";
 import {
   scheduleProgrammePhases,
@@ -106,6 +113,15 @@ export async function createCoachChangeProposal(input: {
     const parsed = parseActivityProposalPayload(input.payload);
     if (!parsed) {
       return { status: "error", message: "Activity proposal isn’t valid." };
+    }
+    normalized = parsed as unknown as Record<string, unknown>;
+  } else if (input.kind === "weekly_schedule") {
+    const parsed = parseWeeklyScheduleProposalPayload(input.payload);
+    if (!parsed) {
+      return {
+        status: "error",
+        message: "Weekly schedule proposal isn’t valid.",
+      };
     }
     normalized = parsed as unknown as Record<string, unknown>;
   } else {
@@ -586,6 +602,162 @@ async function applyGoalProposal(
   return null;
 }
 
+async function applyWeeklyScheduleProposal(
+  userId: string,
+  payload: WeeklyScheduleProposalPayload,
+): Promise<string | null> {
+  const supabase = await createClient();
+  const parsed = parseWeeklyScheduleProposalPayload(payload);
+  if (!parsed) {
+    return "That weekly schedule isn’t valid.";
+  }
+
+  const slots: WeeklyScheduleSlot[] = completeWeeklySchedule(
+    parsed.slots.map((slot) => ({
+      dayOfWeek: slot.dayOfWeek,
+      slotType:
+        slot.slotType === "strength" ||
+        slot.slotType === "hiit" ||
+        slot.slotType === "rest" ||
+        slot.slotType === "other"
+          ? slot.slotType
+          : "other",
+      title: slot.title,
+      templateCode: slot.templateCode ?? null,
+      plannedDurationMinutes: slot.plannedDurationMinutes ?? null,
+    })),
+  );
+
+  const weeksToReseed = parsed.weeksToReseed ?? 2;
+  const today = getLocalLoggedDate();
+  const weekStart = startOfWeekMonday(today);
+
+  const { data: programme } = await supabase
+    .from("training_programmes")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const templateIdByCode = new Map<string, string>();
+  if (programme) {
+    const { data: templates } = await supabase
+      .from("workout_templates")
+      .select("id, code")
+      .eq("programme_id", programme.id)
+      .eq("user_id", userId);
+    for (const row of templates ?? []) {
+      const t = row as { id: string; code: string };
+      templateIdByCode.set(t.code, t.id);
+    }
+
+    await supabase
+      .from("programme_week_slots")
+      .delete()
+      .eq("programme_id", programme.id)
+      .eq("user_id", userId);
+
+    for (const slot of slots) {
+      if (slot.slotType === "rest") {
+        continue;
+      }
+      await supabase.from("programme_week_slots").insert({
+        user_id: userId,
+        programme_id: programme.id,
+        day_of_week: slot.dayOfWeek,
+        slot_type: slot.slotType,
+        template_id: slot.templateCode
+          ? templateIdByCode.get(slot.templateCode) ?? null
+          : null,
+        title: slot.title,
+        sort_order: 0,
+      });
+    }
+  }
+
+  // Remove only future *planned* entries with no linked session — never rewrite history.
+  const windowEnd = addDays(weekStart, weeksToReseed * 7 - 1);
+  const { data: futurePlanned } = await supabase
+    .from("training_plan_entries")
+    .select("id, plan_date, status, training_session_id")
+    .eq("user_id", userId)
+    .gte("plan_date", today)
+    .lte("plan_date", windowEnd)
+    .eq("status", "planned");
+
+  const removableIds = (futurePlanned ?? [])
+    .filter((row) => {
+      const r = row as { training_session_id: string | null };
+      return r.training_session_id == null;
+    })
+    .map((row) => String((row as { id: string }).id));
+
+  if (removableIds.length > 0) {
+    await supabase
+      .from("training_plan_entries")
+      .delete()
+      .eq("user_id", userId)
+      .in("id", removableIds);
+  }
+
+  for (let week = 0; week < weeksToReseed; week += 1) {
+    for (const slot of slots) {
+      if (slot.slotType === "rest") {
+        continue;
+      }
+      const planDate = addDays(weekStart, week * 7 + slot.dayOfWeek);
+      if (planDate < today) {
+        continue;
+      }
+
+      const trainingType =
+        slot.slotType === "strength"
+          ? "strength"
+          : slot.slotType === "hiit"
+            ? "hiit"
+            : slot.slotType === "other"
+              ? "other"
+              : "cardio";
+
+      const { data: existing } = await supabase
+        .from("training_plan_entries")
+        .select("id, status")
+        .eq("user_id", userId)
+        .eq("plan_date", planDate)
+        .eq("title", slot.title)
+        .maybeSingle();
+      if (existing) {
+        continue;
+      }
+
+      await supabase.from("training_plan_entries").insert({
+        user_id: userId,
+        plan_date: planDate,
+        original_plan_date: planDate,
+        training_type: trainingType,
+        title: slot.title,
+        focus: null,
+        planned_duration_minutes: slot.plannedDurationMinutes,
+        status: "planned",
+        sort_order: 0,
+        workout_template_id: slot.templateCode
+          ? templateIdByCode.get(slot.templateCode) ?? null
+          : null,
+      });
+    }
+  }
+
+  const trainingDays = slots.filter((s) => s.slotType !== "rest").length;
+  if (trainingDays > 0) {
+    await supabase
+      .from("profiles")
+      .update({ weekly_session_target: trainingDays })
+      .eq("id", userId);
+  }
+
+  return null;
+}
+
 async function applyCoachChangePayload(
   userId: string,
   proposal: CoachChangeProposalRecord,
@@ -606,6 +778,12 @@ async function applyCoachChangePayload(
     return applyActivityProposal(
       userId,
       proposal.payload as ActivityPatternProposalPayload,
+    );
+  }
+  if (proposal.kind === "weekly_schedule") {
+    return applyWeeklyScheduleProposal(
+      userId,
+      proposal.payload as WeeklyScheduleProposalPayload,
     );
   }
   return applyGoalProposal(userId, proposal.payload as GoalProposalPayload);
@@ -700,7 +878,8 @@ export async function acceptCoachChangeProposal(input: {
       event_type:
         proposal.kind === "nutrition_targets"
           ? "nutrition_decision"
-          : proposal.kind === "programme_phases"
+          : proposal.kind === "programme_phases" ||
+              proposal.kind === "weekly_schedule"
             ? "plan_change"
             : proposal.kind === "goal"
               ? "goal_note"

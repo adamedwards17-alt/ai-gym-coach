@@ -49,6 +49,7 @@ import {
   type TrainingPlanEntryRecord,
   type TrainingSessionRecord,
 } from "@/lib/training";
+import { primaryWorkoutAction } from "@/lib/workout-logging";
 
 type HubMode =
   | { kind: "hub" }
@@ -568,7 +569,7 @@ export function TrainingHubExperience() {
                   className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
                   onClick={openUnplannedLog}
                 >
-                  Log workout
+                  Log a workout
                 </button>
               </div>
             </div>
@@ -624,7 +625,10 @@ export function TrainingHubExperience() {
                                 className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
                                 onClick={() => openComplete(plan)}
                               >
-                                Mark as complete
+                                {primaryWorkoutAction(plan.training_type) ===
+                                "start"
+                                  ? "Start a workout"
+                                  : "Log a workout"}
                               </button>
                               <button
                                 type="button"
@@ -860,7 +864,10 @@ export function TrainingHubExperience() {
                               className="text-[12px] text-foreground/90 underline-offset-2 hover:underline"
                               onClick={() => openComplete(entry)}
                             >
-                              Mark as complete
+                              {primaryWorkoutAction(entry.training_type) ===
+                              "start"
+                                ? "Start a workout"
+                                : "Log a workout"}
                             </button>
                           ) : null}
                           {entry.status === "completed" && linked ? (
@@ -1022,7 +1029,7 @@ export function TrainingHubExperience() {
             className="mt-5 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
             onClick={openUnplannedLog}
           >
-            + Log workout
+            + Log a workout
           </button>
         </section>
       ) : viewingCurrentWeek ? (
@@ -1031,7 +1038,7 @@ export function TrainingHubExperience() {
           className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
           onClick={openUnplannedLog}
         >
-          + Log workout
+          + Log a workout
         </button>
       ) : null}
     </div>

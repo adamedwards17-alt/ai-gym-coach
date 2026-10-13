@@ -7,12 +7,16 @@ import {
   intensityOptions,
   labelForDuration,
   labelForTrainingType,
-  trainingTypeOptions,
   type TrainingIntensityId,
   type TrainingPlanEntryRecord,
   type TrainingSessionRecord,
   type TrainingTypeId,
 } from "@/lib/training";
+import {
+  activityLogTypeOptions,
+  defaultActivityLogType,
+  normalizeOptionalCalories,
+} from "@/lib/workout-logging";
 
 export type WorkoutLogSheetProps = {
   /** Planned entry being completed or edited. Null for unplanned log. */
@@ -42,8 +46,9 @@ export function WorkoutLogSheet({
   onSaved,
 }: WorkoutLogSheetProps) {
   const isEdit = session != null;
+  const typeOptions = activityLogTypeOptions();
   const plannedType =
-    plan && plan.training_type !== "rest"
+    plan && plan.training_type !== "rest" && plan.training_type !== "strength"
       ? (plan.training_type as TrainingTypeId)
       : null;
 
@@ -51,7 +56,9 @@ export function WorkoutLogSheet({
     session?.title ?? plan?.title ?? plan?.focus ?? "",
   );
   const [trainingType, setTrainingType] = useState<TrainingTypeId>(
-    session?.training_type ?? plannedType ?? "strength",
+    defaultActivityLogType(
+      session?.training_type ?? plannedType ?? "hiit",
+    ),
   );
   const [duration, setDuration] = useState(
     session?.duration_minutes != null ? String(session.duration_minutes) : "",
@@ -79,11 +86,11 @@ export function WorkoutLogSheet({
       return;
     }
 
-    const caloriesBurned = parseOptionalInt(calories);
-    if (calories.trim() && caloriesBurned == null) {
+    if (calories.trim() && normalizeOptionalCalories(calories) == null) {
       setError("Calories must be a whole number, or leave blank.");
       return;
     }
+    const caloriesBurned = normalizeOptionalCalories(calories);
 
     setSaving(true);
     setError(null);
@@ -129,7 +136,7 @@ export function WorkoutLogSheet({
           id="workout-log-title"
           className="font-serif text-[1.5rem] tracking-tight"
         >
-          {isEdit ? "Edit workout" : "Log workout"}
+          {isEdit ? "Edit workout" : "Log a workout"}
         </p>
         {plan ? (
           <p className="mt-1 text-[13px] text-muted">
@@ -138,11 +145,12 @@ export function WorkoutLogSheet({
             {plan.planned_duration_minutes
               ? ` · ${labelForDuration(plan.planned_duration_minutes)} planned`
               : ""}
-            . Enter what you actually did.
+            . Enter duration and optional calories — no sets or weights needed.
           </p>
         ) : (
           <p className="mt-1 text-[13px] text-muted">
-            Log an unplanned session. Duration is what you actually completed.
+            Log an unplanned HIIT, cardio, sport or recovery session. Duration
+            and optional calories only.
           </p>
         )}
 
@@ -152,15 +160,15 @@ export function WorkoutLogSheet({
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="e.g. Upper body"
+              placeholder="e.g. HIIT session"
               className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
             />
           </label>
 
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="text-[12px] text-muted">Type</legend>
+            <legend className="text-[12px] text-muted">Activity type</legend>
             <div className="flex flex-wrap gap-2">
-              {trainingTypeOptions.map((option) => (
+              {typeOptions.map((option) => (
                 <button
                   key={option.id}
                   type="button"
@@ -179,7 +187,7 @@ export function WorkoutLogSheet({
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] text-muted">
-              Actual duration (minutes)
+              Duration (minutes)
             </span>
             <input
               inputMode="numeric"
@@ -220,13 +228,13 @@ export function WorkoutLogSheet({
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] text-muted">
-              Calories burned (optional)
+              Calories burned (optional, manually entered)
             </span>
             <input
               inputMode="numeric"
               value={calories}
               onChange={(event) => setCalories(event.target.value)}
-              placeholder="Optional"
+              placeholder="Leave blank if unknown — we won’t invent a number"
               className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
             />
           </label>
@@ -237,7 +245,7 @@ export function WorkoutLogSheet({
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               rows={3}
-              placeholder="How it felt, substitutions…"
+              placeholder="How it felt…"
               className="rounded-2xl border border-border bg-surface/60 px-4 py-3 text-[14px] text-foreground outline-none focus:border-white/20"
             />
           </label>
