@@ -8,6 +8,7 @@ import {
   estimateNutritionFood,
   loadNutritionDay,
   markNutritionEntryEaten,
+  saveMealDraftEntry,
   saveNutritionEntry,
   updateNutritionEntry,
 } from "@/app/actions/nutrition";
@@ -18,10 +19,19 @@ import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySumm
 import { NutritionDescriptionInput } from "@/components/nutrition/NutritionDescriptionInput";
 import { NutritionEditSheet } from "@/components/nutrition/NutritionEditSheet";
 import {
+  NutritionMealBuilder,
+  type MealBuilderSaveValues,
+} from "@/components/nutrition/NutritionMealBuilder";
+import {
   NutritionRecentFoodEditor,
   type RecentFoodLogValues,
 } from "@/components/nutrition/NutritionRecentFoodEditor";
 import { PhotoEstimatePanel } from "@/components/nutrition/PhotoEstimatePanel";
+import {
+  mealDraftFromEstimate,
+  shouldOpenMealBuilder,
+  type MealDraft,
+} from "@/lib/meal-builder";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import { UserResponse } from "@/components/today/UserResponse";
@@ -113,6 +123,8 @@ export function NutritionLogExperience({
     estimate: NutritionEstimate;
     alreadyPortioned?: boolean;
   } | null>(null);
+  const [mealDraft, setMealDraft] = useState<MealDraft | null>(null);
+  const [mealDraftNotice, setMealDraftNotice] = useState<string | null>(null);
   const [summary, setSummary] = useState<NutritionDaySummary | null>(null);
   const [entries, setEntries] = useState<NutritionEntryRecord[]>([]);
   const [ready, setReady] = useState(false);
@@ -303,6 +315,8 @@ export function NutritionLogExperience({
           fat_g_estimated: pending.estimate.fatG,
           estimation_confidence: pending.estimate.confidence,
           estimation_source: pending.estimate.source,
+          meal_id: null,
+          portions: null,
           created_at: new Date().toISOString(),
         };
         setRecentFood({ entry: synthetic, estimate: pending.estimate });
@@ -357,10 +371,8 @@ export function NutritionLogExperience({
     }
 
     if (result.status === "needs_review") {
-      setEstimate(result.estimate);
-      setSaveError(result.message);
+      openMealBuilderFromEstimate(result.estimate, result.message);
       setClarificationAnswer("");
-      setEditing(null);
       return;
     }
 
@@ -394,15 +406,77 @@ export function NutritionLogExperience({
         });
         setPromptMealSelection(true);
         setEstimate(null);
+        setMealDraft(null);
         setClarificationAnswer("");
         setEditing(null);
         return;
       }
     }
 
-    setEstimate(result.estimate);
+    openMealBuilderFromEstimate(result.estimate, null);
     setClarificationAnswer("");
+  }
+
+  function openMealBuilderFromEstimate(
+    nextEstimate: NutritionEstimate,
+    notice: string | null,
+  ) {
+    if (!shouldOpenMealBuilder(nextEstimate)) {
+      setEstimate(nextEstimate);
+      setSaveError(notice);
+      setEditing(null);
+      return;
+    }
+    setMealDraft(
+      mealDraftFromEstimate(nextEstimate, {
+        titleFallback: draft.description,
+      }),
+    );
+    setMealDraftNotice(notice);
+    setEstimate(null);
+    setRecentFood(null);
     setEditing(null);
+    setSaveError(null);
+  }
+
+  async function handleMealBuilderSave(values: MealBuilderSaveValues) {
+    if (saving) {
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    const result = await saveMealDraftEntry({
+      loggedDate: getLocalLoggedDate(),
+      mealType: values.mealType,
+      status: values.status,
+      draft: values.draft,
+      description: values.description,
+      saveDefinition: values.saveDefinition,
+      barcode: barcodeMeta?.barcode ?? null,
+      brand: barcodeMeta?.brand ?? null,
+    });
+    if (result.status !== "saved") {
+      setSaveError(result.message);
+      setSaving(false);
+      return;
+    }
+    await refreshDay();
+    setMealDraft(null);
+    setMealDraftNotice(null);
+    setDraft(emptyDraft);
+    setEstimate(null);
+    setPendingEstimate(null);
+    setClarificationQuestion(null);
+    setFromSuggestion(false);
+    setRecentFood(null);
+    setBarcodeMeta(null);
+    setEntryMode(null);
+    setPromptMealSelection(false);
+    setEditing(null);
+    setJustSaved(true);
+    setLoggingOpen(false);
+    setSaving(false);
+    setComposerKey((key) => key + 1);
   }
 
   async function handleConfirmSave() {
@@ -468,6 +542,8 @@ export function NutritionLogExperience({
     setClarificationAnswer("");
     setFromSuggestion(false);
     setRecentFood(null);
+    setMealDraft(null);
+    setMealDraftNotice(null);
     setBarcodeMeta(null);
     setEntryMode("compose");
     setPromptMealSelection(false);
@@ -494,6 +570,8 @@ export function NutritionLogExperience({
     setClarificationAnswer("");
     setFromSuggestion(false);
     setRecentFood(null);
+    setMealDraft(null);
+    setMealDraftNotice(null);
     setBarcodeMeta(null);
     setEntryMode(null);
     setPromptMealSelection(false);
@@ -762,7 +840,10 @@ export function NutritionLogExperience({
   }
 
   const loggingActive =
-    loggingOpen || recentFood != null || Boolean(draft.description);
+    loggingOpen ||
+    recentFood != null ||
+    mealDraft != null ||
+    Boolean(draft.description);
 
   return (
     <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
@@ -814,7 +895,30 @@ export function NutritionLogExperience({
 
       {loggingActive ? (
         <div className="flex flex-col gap-7">
-          {recentFood ? (
+          {mealDraft ? (
+            <NutritionMealBuilder
+              key={`meal-${composerKey}`}
+              initialDraft={mealDraft}
+              initialMealType={
+                draft.mealType ?? initialMealType ?? suggestedMealType
+              }
+              saving={saving}
+              error={saveError}
+              notice={mealDraftNotice}
+              onCancel={resetDescriptionFlow}
+              onSave={(values) => void handleMealBuilderSave(values)}
+            />
+          ) : estimating ? (
+            <div className="rounded-[1.75rem] border border-border/80 bg-surface/35 px-4 py-8 text-center">
+              <p className="font-serif text-[1.35rem] tracking-tight">
+                Building your meal…
+              </p>
+              <p className="mt-2 text-[13px] text-muted">
+                Estimating ingredients and nutrition. Nothing is saved until you
+                confirm.
+              </p>
+            </div>
+          ) : recentFood ? (
             <NutritionRecentFoodEditor
               key={`${recentFood.entry.id}-${composerKey}`}
               entry={recentFood.entry}
@@ -873,6 +977,8 @@ export function NutritionLogExperience({
                     fat_g_estimated: estimateWithName.fatG,
                     estimation_confidence: estimateWithName.confidence,
                     estimation_source: "open_food_facts",
+                    meal_id: null,
+                    portions: null,
                     created_at: new Date().toISOString(),
                   },
                   estimate: estimateWithName,
@@ -913,19 +1019,22 @@ export function NutritionLogExperience({
               onCancel={() => setEntryMode("compose")}
               onEstimated={(result) => {
                 beginEdit();
-                setSaveError(result.notice);
                 setDraft((current) => ({
                   ...current,
                   description: result.description,
                   mealTypeSkipped: false,
                   status: "eaten",
                 }));
-                setEstimate({
-                  ...result.estimate,
-                  confidence: "low",
-                });
-                setEntryMode("describe");
-                setEditing(null);
+                openMealBuilderFromEstimate(
+                  {
+                    ...result.estimate,
+                    confidence: "low",
+                    displayName:
+                      result.estimate.displayName ?? result.description,
+                  },
+                  result.notice,
+                );
+                setEntryMode("compose");
               }}
             />
           ) : !draft.description && entryMode !== "describe" ? (
@@ -975,11 +1084,12 @@ export function NutritionLogExperience({
                         beginEdit();
                         setRecentFood(null);
                         setBarcodeMeta(null);
+                        setMealDraft(null);
                         setDraft((current) => ({
                           ...current,
                           description,
                           mealTypeSkipped: false,
-                          status: current.status,
+                          status: "eaten",
                         }));
                         setEstimate(null);
                         setPendingEstimate(null);
@@ -987,6 +1097,8 @@ export function NutritionLogExperience({
                         setFromSuggestion(false);
                         setEntryMode("describe");
                         setEditing(null);
+                        // AI works behind the scenes → structured meal builder.
+                        void runEstimate(description);
                       }}
                       onSelectSuggestion={applySuggestion}
                     />

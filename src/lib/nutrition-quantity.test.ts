@@ -148,6 +148,8 @@ describe("reuse saved food without AI", () => {
     fat_g_estimated: 5,
     estimation_confidence: "high",
     estimation_source: "user",
+    meal_id: null,
+    portions: null,
     created_at: "2026-10-12T08:00:00.000Z",
   };
 

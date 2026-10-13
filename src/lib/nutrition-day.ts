@@ -35,6 +35,8 @@ export const NUTRITION_ENTRY_SELECT = [
   "fat_g_estimated",
   "estimation_confidence",
   "estimation_source",
+  "meal_id",
+  "portions",
   "created_at",
 ].join(", ");
 
@@ -109,6 +111,11 @@ export function toNutritionEntryRecord(
     estimation_source: isEstimationSource(row.estimation_source)
       ? row.estimation_source
       : null,
+    meal_id:
+      typeof row.meal_id === "string" && row.meal_id.trim()
+        ? row.meal_id.trim()
+        : null,
+    portions: toNullableFiniteNumber(row.portions),
     created_at: row.created_at,
   };
 }

@@ -35,6 +35,11 @@ import {
   type NutritionEntryStatus,
   type NutritionEstimate,
 } from "@/lib/nutrition";
+import {
+  estimateFromMealDraft,
+  mealDraftTotals,
+  type MealDraft,
+} from "@/lib/meal-builder";
 import { parseGramsFromText } from "@/lib/nutrition-quantity";
 import { resolveReuseFromRecentFoods } from "@/lib/nutrition-reuse";
 import {
@@ -691,6 +696,143 @@ export async function updateNutritionEntry(input: {
   }
 }
 
+export async function saveMealDraftEntry(input: {
+  loggedDate: string;
+  mealType: MealTypeId | null;
+  status: NutritionEntryStatus;
+  draft: MealDraft;
+  description: string;
+  /** Persist the 1-portion recipe for future reuse. */
+  saveDefinition: boolean;
+  barcode?: string | null;
+  brand?: string | null;
+}): Promise<SaveNutritionResult> {
+  if (!isValidLoggedDate(input.loggedDate)) {
+    return { status: "error", message: "That date isn’t valid." };
+  }
+  if (input.mealType !== null && !isMealTypeId(input.mealType)) {
+    return { status: "error", message: "That meal type isn’t valid." };
+  }
+  if (!isNutritionEntryStatus(input.status)) {
+    return { status: "error", message: "That meal status isn’t valid." };
+  }
+  if (!input.draft.title.trim() || input.draft.ingredients.length === 0) {
+    return { status: "error", message: "Add a meal title and at least one ingredient." };
+  }
+  if (!isSupabaseConfigured()) {
+    return {
+      status: "error",
+      message: "Supabase isn’t connected, so that meal couldn’t be saved.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "error", message: "You’re not signed in." };
+  }
+
+  const estimate = estimateFromMealDraft(input.draft);
+  const totals = mealDraftTotals(input.draft);
+  const sanity = validateNutritionMacros(totals, { allowPartial: true });
+  if (!sanity.ok) {
+    return {
+      status: "error",
+      message:
+        sanity.issues[0]?.message ??
+        "Those nutrition values look invalid. Please review.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+    let mealId: string | null = null;
+
+    if (input.saveDefinition) {
+      const perPortion = mealDraftTotals({
+        ...input.draft,
+        portionsEaten: 1,
+      });
+      const { data: mealRow, error: mealError } = await supabase
+        .from("nutrition_meals")
+        .insert({
+          user_id: user.id,
+          name: input.draft.title.trim().slice(0, 120),
+          search_aliases: input.draft.searchAliases.slice(0, 12),
+          brand: input.brand?.trim().slice(0, 80) || null,
+          estimation_source: input.draft.source,
+          estimation_confidence: input.draft.confidence,
+          calories_per_portion: perPortion.calories,
+          protein_g_per_portion: perPortion.proteinG,
+          carbs_g_per_portion: perPortion.carbsG,
+          fat_g_per_portion: perPortion.fatG,
+        })
+        .select("id")
+        .single();
+
+      if (mealError || !mealRow) {
+        console.error(
+          "[nutrition] Meal definition save failed:",
+          mealError?.message ?? "No row",
+        );
+        return {
+          status: "error",
+          message: "That meal couldn’t be saved. Try again.",
+        };
+      }
+
+      mealId = String((mealRow as { id: string }).id);
+      const ingredientRows = input.draft.ingredients.map((item, index) => ({
+        meal_id: mealId,
+        user_id: user.id,
+        sort_order: index,
+        name: item.name.trim().slice(0, 160) || "Ingredient",
+        quantity_amount: item.quantityAmount,
+        quantity_unit: item.quantityUnit,
+        quantity_label: item.quantityLabel,
+        calories: item.calories,
+        protein_g: item.proteinG,
+        carbs_g: item.carbsG,
+        fat_g: item.fatG,
+        estimated: item.estimated,
+      }));
+
+      const { error: ingredientsError } = await supabase
+        .from("nutrition_meal_ingredients")
+        .insert(ingredientRows);
+      if (ingredientsError) {
+        console.error(
+          "[nutrition] Meal ingredients save failed:",
+          ingredientsError.message,
+        );
+        // Definition without ingredients is still usable via entry snapshot.
+      }
+    }
+
+    return saveNutritionEntry({
+      loggedDate: input.loggedDate,
+      description: input.description,
+      mealType: input.mealType,
+      status: input.status,
+      estimate: {
+        ...estimate,
+        displayName: input.draft.title.trim(),
+      },
+      barcode: input.barcode,
+      brand: input.brand,
+      mealId,
+      portions: input.draft.portionsEaten,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown meal save error";
+    console.error("[nutrition] Meal draft save failed:", message);
+    return {
+      status: "error",
+      message: "That meal couldn’t be saved. Try again.",
+    };
+  }
+}
+
 export async function saveNutritionEntry(input: {
   loggedDate: string;
   description: string;
@@ -700,6 +842,8 @@ export async function saveNutritionEntry(input: {
   /** Optional Open Food Facts product metadata. */
   barcode?: string | null;
   brand?: string | null;
+  mealId?: string | null;
+  portions?: number | null;
 }): Promise<SaveNutritionResult> {
   if (!isValidLoggedDate(input.loggedDate)) {
     return { status: "error", message: "That date isn’t valid." };
@@ -745,6 +889,13 @@ export async function saveNutritionEntry(input: {
       extra: estimate?.searchAliases,
     });
 
+    const portions =
+      typeof input.portions === "number" &&
+      Number.isFinite(input.portions) &&
+      input.portions > 0
+        ? Math.round(input.portions * 10) / 10
+        : null;
+
     const { data, error } = await supabase
       .from("nutrition_entries")
       .insert({
@@ -763,6 +914,8 @@ export async function saveNutritionEntry(input: {
         fat_g_estimated: estimate?.fatG ?? null,
         estimation_confidence: estimate?.confidence ?? null,
         estimation_source: estimate?.source ?? (estimate ? "gemini" : "none"),
+        meal_id: input.mealId ?? null,
+        portions,
       })
       .select(NUTRITION_ENTRY_SELECT)
       .single();

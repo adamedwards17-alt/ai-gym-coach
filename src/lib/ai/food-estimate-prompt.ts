@@ -25,7 +25,10 @@ Otherwise return:
   "search_aliases": ["short", "searchable", "terms"],
   "items": [
     {
-      "description": "short item label",
+      "description": "short item label including quantity when known",
+      "quantity_amount": 40,
+      "quantity_unit": "g",
+      "quantity_label": null,
       "calories": 0,
       "protein_g": 0,
       "carbs_g": 0,
@@ -47,8 +50,10 @@ Rules:
 - Prefer an explicit mass in grams when present. If the user gives both grams and “portions/servings”, use the grams and do NOT also multiply by portions.
 - Never double-count quantity (e.g. “80g” and “two portions” of the same food must not be applied twice).
 - Sanity: typical dry cereal/granola is roughly 350–450 kcal per 100g. An 80g granola serving near or above 1000 kcal is almost always wrong — recheck.
-- Split into sensible items when the user lists multiple foods.
-- display_name: a concise, natural dish or product title (2–4 words, max 40 characters, sentence case). Name the dish, not the ingredient list. Examples: "Spinach and mushroom omelette", "Chicken rice bowl", "Protein shake", "Cappuccino". Never include quantities or commas.
+- Split into sensible items when the user lists multiple foods (one row per ingredient).
+- For each item set quantity_amount + quantity_unit when known (g, ml, count, handful, serving). Use quantity_label for approximate amounts (e.g. "1 handful") when exact mass is unknown.
+- Item nutrition must match that item's quantity only — do not also bake portion multipliers into totals separately.
+- display_name: a concise meal title (2–4 words, max 40 characters, sentence case). Prefer the main product/dish name — e.g. "Waitrose Berry Granola" — not a comma-separated ingredient list. Never include quantities.
 - search_aliases: 3–8 lowercase search terms the user might later type to find this meal again (dish name, main ingredients, common synonyms). No quantities, no sentences.
 - totals must equal the sum of items (within rounding).
 - confidence: "high" for clear quantities of common foods; "medium" for reasonable assumptions; "low" for vague/restaurant/unknown portions or when clarification was skipped.

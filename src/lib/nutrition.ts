@@ -42,6 +42,9 @@ export type NutritionEstimate = {
     carbsG: number;
     fatG: number;
     confidence: NutritionEstimationConfidence;
+    quantityAmount?: number | null;
+    quantityUnit?: string | null;
+    quantityLabel?: string | null;
   }>;
 };
 
@@ -61,6 +64,10 @@ export type NutritionEntryRecord = {
   fat_g_estimated: number | null;
   estimation_confidence: NutritionEstimationConfidence | null;
   estimation_source: NutritionEstimationSource | null;
+  /** Optional link to a reusable 1-portion meal definition. */
+  meal_id: string | null;
+  /** Portions eaten for this log; definition stays at 1×. */
+  portions: number | null;
   created_at: string;
 };
 
@@ -354,6 +361,22 @@ export function parseFoodEstimationResponse(
       ) {
         continue;
       }
+      const quantityAmount = toFiniteNumber(
+        row.quantity_amount ?? row.quantityAmount,
+      );
+      const quantityUnit =
+        typeof row.quantity_unit === "string"
+          ? row.quantity_unit.trim()
+          : typeof row.quantityUnit === "string"
+            ? row.quantityUnit.trim()
+            : null;
+      const quantityLabel =
+        typeof row.quantity_label === "string"
+          ? row.quantity_label.trim()
+          : typeof row.quantityLabel === "string"
+            ? row.quantityLabel.trim()
+            : null;
+
       items.push({
         description: row.description.trim(),
         calories: Math.round(itemCalories),
@@ -363,6 +386,9 @@ export function parseFoodEstimationResponse(
         confidence: isEstimationConfidence(row.confidence)
           ? row.confidence
           : confidence,
+        quantityAmount,
+        quantityUnit,
+        quantityLabel,
       });
     }
   }
