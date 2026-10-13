@@ -26,10 +26,9 @@ import {
 } from "@/lib/coach";
 import {
   COACH_ATTACHMENT_BUCKET,
-  coachAttachmentObjectPath,
   coachImageOnlyContent,
+  isOwnedCoachAttachmentPath,
   validateCoachAudioAttachment,
-  validateCoachImageAttachment,
 } from "@/lib/coach-attachments";
 import { parseCommutePattern } from "@/lib/activity-pattern";
 import {
@@ -176,12 +175,6 @@ async function withSignedAttachmentUrls(
       return { ...message, attachment_url: data.signedUrl };
     }),
   );
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const cleaned = base64.replace(/\s+/g, "");
-  const binary = Buffer.from(cleaned, "base64");
-  return new Uint8Array(binary);
 }
 
 async function hydrateCoachChatImages(
@@ -973,16 +966,22 @@ export async function sendCoachMessage(input: {
   conversationId: string;
   content: string;
   localDate: string;
-  /** Optional image attachment (base64, no data-URL prefix). */
-  imageBase64?: string | null;
-  imageMimeType?: string | null;
+  /**
+   * Preferred: path already uploaded by the client to private Storage
+   * (`{userId}/{conversationId}/…`). Avoids Server Action body-size crashes.
+   */
+  attachmentPath?: string | null;
+  attachmentMimeType?: string | null;
 }): Promise<SendCoachMessageResult> {
   if (!isValidCoachDate(input.localDate)) {
     return { status: "error", message: "That date isn’t valid." };
   }
 
-  const hasImage =
-    typeof input.imageBase64 === "string" && input.imageBase64.length > 0;
+  const attachmentPath =
+    typeof input.attachmentPath === "string" && input.attachmentPath.trim()
+      ? input.attachmentPath.trim()
+      : null;
+  const hasImage = attachmentPath != null;
   let content = input.content.trim();
   if (!content && !hasImage) {
     return { status: "error", message: "Write a message for your coach." };
@@ -991,21 +990,19 @@ export async function sendCoachMessage(input: {
     content = coachImageOnlyContent();
   }
 
-  let imageMeta: {
-    mimeType: string;
-    base64: string;
-  } | null = null;
-  if (hasImage) {
-    const validated = validateCoachImageAttachment({
-      imageBase64: input.imageBase64!,
-      mimeType: input.imageMimeType ?? "image/jpeg",
-    });
-    if (!validated.ok) {
-      return { status: "error", message: validated.message };
-    }
-    imageMeta = {
-      mimeType: validated.mimeType,
-      base64: input.imageBase64!.replace(/\s+/g, ""),
+  const attachmentMimeTypeRaw = (
+    input.attachmentMimeType ?? "image/jpeg"
+  )
+    .trim()
+    .toLowerCase();
+  if (
+    hasImage &&
+    attachmentMimeTypeRaw &&
+    !attachmentMimeTypeRaw.startsWith("image/")
+  ) {
+    return {
+      status: "error",
+      message: "That image format isn’t supported. Try JPEG, PNG or a screenshot.",
     };
   }
 
@@ -1029,36 +1026,37 @@ export async function sendCoachMessage(input: {
     return { status: "error", message: "That chat couldn’t be found." };
   }
 
+  // Ownership: path must live under this user's folder.
+  if (attachmentPath && !isOwnedCoachAttachmentPath(user.id, attachmentPath)) {
+    console.error("[coach] Rejected attachment path outside user folder");
+    return {
+      status: "error",
+      message: "That photo couldn’t be attached. Try again.",
+    };
+  }
+
   try {
     const supabase = await createClient();
 
-    let attachmentPath: string | null = null;
     let attachmentMimeType: string | null = null;
     let attachmentKind: "image" | null = null;
 
-    if (imageMeta) {
-      const fileId = crypto.randomUUID();
-      attachmentPath = coachAttachmentObjectPath(
-        user.id,
-        input.conversationId,
-        fileId,
-        imageMeta.mimeType,
-      );
-      const bytes = base64ToUint8Array(imageMeta.base64);
-      const { error: uploadError } = await supabase.storage
+    if (attachmentPath) {
+      // Confirm the object exists before linking it to a message.
+      const { data: signed, error: verifyError } = await supabase.storage
         .from(COACH_ATTACHMENT_BUCKET)
-        .upload(attachmentPath, bytes, {
-          contentType: imageMeta.mimeType,
-          upsert: false,
-        });
-      if (uploadError) {
-        console.error("[coach] Image upload failed:", uploadError.message);
+        .createSignedUrl(attachmentPath, 60);
+      if (verifyError || !signed?.signedUrl) {
+        console.error(
+          "[coach] Attachment verify failed:",
+          verifyError?.message ?? "Missing object",
+        );
         return {
           status: "error",
-          message: "That photo couldn’t be uploaded. Try again.",
+          message: "That photo upload wasn’t found. Try attaching it again.",
         };
       }
-      attachmentMimeType = imageMeta.mimeType;
+      attachmentMimeType = attachmentMimeTypeRaw || "image/jpeg";
       attachmentKind = "image";
     }
 
@@ -1074,11 +1072,6 @@ export async function sendCoachMessage(input: {
 
     if (insertError) {
       console.error("[coach] User message save failed:", insertError.message);
-      if (attachmentPath) {
-        await supabase.storage
-          .from(COACH_ATTACHMENT_BUCKET)
-          .remove([attachmentPath]);
-      }
       return {
         status: "error",
         message: "Your message couldn’t be saved. Try again.",

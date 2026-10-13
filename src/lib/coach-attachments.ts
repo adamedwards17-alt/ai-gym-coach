@@ -145,3 +145,34 @@ export function messageHasCoachImage(message: {
     message.attachment_path.length > 0
   );
 }
+
+/** Paths must be `{userId}/…` so clients cannot attach another user’s object. */
+export function isOwnedCoachAttachmentPath(
+  userId: string,
+  attachmentPath: string,
+): boolean {
+  if (!userId || !attachmentPath) {
+    return false;
+  }
+  if (attachmentPath.includes("..") || attachmentPath.startsWith("/")) {
+    return false;
+  }
+  return attachmentPath.startsWith(`${userId}/`);
+}
+
+/**
+ * Server Actions must receive only a Storage path for images — not base64.
+ * Passing a phone photo as base64 exceeds Next’s default 1MB action body limit
+ * and crashes iPhone Safari with “Unable to load”.
+ */
+export function coachSendPayloadUsesStoragePath(input: {
+  attachmentPath?: string | null;
+  imageBase64?: string | null;
+}): boolean {
+  const hasPath =
+    typeof input.attachmentPath === "string" &&
+    input.attachmentPath.trim().length > 0;
+  const hasInlineBase64 =
+    typeof input.imageBase64 === "string" && input.imageBase64.length > 0;
+  return hasPath && !hasInlineBase64;
+}

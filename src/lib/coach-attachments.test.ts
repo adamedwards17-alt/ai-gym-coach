@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import {
   coachAttachmentObjectPath,
   coachImageOnlyContent,
+  coachSendPayloadUsesStoragePath,
+  isOwnedCoachAttachmentPath,
   messageHasCoachImage,
   validateCoachAudioAttachment,
   validateCoachImageAttachment,
@@ -60,6 +62,40 @@ describe("coach image attachments", () => {
       false,
     );
     assert.match(coachImageOnlyContent(), /photo/i);
+  });
+});
+
+describe("coach attachment path safety", () => {
+  it("requires user-owned storage paths", () => {
+    assert.equal(
+      isOwnedCoachAttachmentPath("user-1", "user-1/conv/file.jpg"),
+      true,
+    );
+    assert.equal(
+      isOwnedCoachAttachmentPath("user-1", "user-2/conv/file.jpg"),
+      false,
+    );
+    assert.equal(
+      isOwnedCoachAttachmentPath("user-1", "../user-1/secret.jpg"),
+      false,
+    );
+  });
+
+  it("requires send payloads to use storage paths, not inline base64", () => {
+    assert.equal(
+      coachSendPayloadUsesStoragePath({
+        attachmentPath: "user-1/c/f.jpg",
+        imageBase64: null,
+      }),
+      true,
+    );
+    assert.equal(
+      coachSendPayloadUsesStoragePath({
+        attachmentPath: null,
+        imageBase64: "aaaa",
+      }),
+      false,
+    );
   });
 });
 

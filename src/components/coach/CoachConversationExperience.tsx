@@ -12,10 +12,7 @@ import {
   transcribeCoachAudio,
 } from "@/app/actions/coach";
 import { listPendingTrainingProposals } from "@/app/actions/training";
-import {
-  CoachComposer,
-  type CoachComposerAttachment,
-} from "@/components/coach/CoachComposer";
+import { CoachComposer } from "@/components/coach/CoachComposer";
 import { CoachPlanUpdateBundle } from "@/components/coach/CoachPlanUpdateBundle";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import {
@@ -52,11 +49,13 @@ export function CoachConversationExperience({
   const [draft, setDraft] = useState("");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const [pending, startTransition] = useTransition();
   const [creating, startCreate] = useTransition();
   const [loadingMessage, setLoadingMessage] = useState(
     "Thinking that through…",
   );
+  const busy = sending || pending;
 
   const refreshProposals = useCallback(() => {
     void listPendingTrainingProposals({ conversationId }).then((result) => {
@@ -115,42 +114,50 @@ export function CoachConversationExperience({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pending, proposals, changeProposals]);
+  }, [messages, busy, proposals, changeProposals]);
 
-  function sendContent(
-    content: string,
-    image: CoachComposerAttachment | null = null,
-  ) {
-    const trimmed = content.trim();
-    if ((!trimmed && !image) || pending) {
-      return;
+  async function sendContent(input: {
+    content: string;
+    attachmentPath?: string | null;
+    attachmentMimeType?: string | null;
+    previewUrl?: string | null;
+  }): Promise<{ ok: boolean; message?: string }> {
+    const trimmed = input.content.trim();
+    const hasImage = Boolean(input.attachmentPath);
+    if ((!trimmed && !hasImage) || busy) {
+      return { ok: false, message: "Write a message for your coach." };
     }
 
     const displayContent = trimmed || coachImageOnlyContent();
-    setDraft("");
     setError(null);
-    setLoadingMessage(getCoachLoadingMessage(displayContent));
+    setSending(true);
+    setLoadingMessage(
+      hasImage
+        ? "Looking at your photo…"
+        : getCoachLoadingMessage(displayContent),
+    );
 
+    const optimisticId = `local-${conversationId}-${crypto.randomUUID()}`;
     const optimistic: CoachMessageRecord = {
-      id: `local-${conversationId}-${messages.length}-${displayContent.length}`,
+      id: optimisticId,
       conversation_id: conversationId,
       role: "user",
       content: displayContent,
       created_at: new Date(0).toISOString(),
-      attachment_path: image ? "pending" : null,
-      attachment_mime_type: image?.mimeType ?? null,
-      attachment_kind: image ? "image" : null,
-      attachment_url: image?.previewUrl ?? null,
+      attachment_path: input.attachmentPath ?? null,
+      attachment_mime_type: input.attachmentMimeType ?? null,
+      attachment_kind: hasImage ? "image" : null,
+      attachment_url: input.previewUrl ?? null,
     };
     setMessages((current) => [...current, optimistic]);
 
-    startTransition(async () => {
+    try {
       const result = await sendCoachMessage({
         conversationId,
         content: trimmed,
         localDate: getLocalCoachDate(),
-        imageBase64: image?.imageBase64 ?? null,
-        imageMimeType: image?.mimeType ?? null,
+        attachmentPath: input.attachmentPath ?? null,
+        attachmentMimeType: input.attachmentMimeType ?? null,
       });
 
       if (result.status === "ok") {
@@ -159,17 +166,35 @@ export function CoachConversationExperience({
         refreshProposals();
         router.refresh();
         setError(null);
-        return;
+        return { ok: true };
       }
 
+      // Keep draft/attachment in the composer; restore messages without the
+      // optimistic bubble (or use server list when available).
       if (result.messages) {
         setMessages(result.messages);
+      } else {
+        setMessages((current) =>
+          current.filter((message) => message.id !== optimisticId),
+        );
       }
       if (result.conversation) {
         setConversation(result.conversation);
       }
       setError(result.message);
-    });
+      return { ok: false, message: result.message };
+    } catch (error) {
+      console.error("[coach] Send crashed:", error);
+      setMessages((current) =>
+        current.filter((message) => message.id !== optimisticId),
+      );
+      const message =
+        "That message couldn’t be sent. Check your connection and try again.";
+      setError(message);
+      return { ok: false, message };
+    } finally {
+      setSending(false);
+    }
   }
 
   function handleRetry() {
@@ -238,7 +263,7 @@ export function CoachConversationExperience({
 
   const showMealInspirationQuickReplies =
     isMealInspirationConversation(conversation.title) &&
-    !pending &&
+    !busy &&
     messages.some((message) => message.role === "assistant") &&
     !hasSentMealInspirationQuickReply(messages);
 
@@ -293,7 +318,7 @@ export function CoachConversationExperience({
           ),
         )}
 
-        {pending ? (
+        {busy ? (
           <CoachMessage footnote="Thinking…">{loadingMessage}</CoachMessage>
         ) : null}
 
@@ -319,7 +344,7 @@ export function CoachConversationExperience({
             {lastIsUser ? (
               <button
                 type="button"
-                disabled={pending}
+                disabled={busy}
                 onClick={handleRetry}
                 className="inline-flex h-10 w-fit items-center rounded-full border border-border px-4 text-[13px] text-foreground disabled:opacity-60"
               >
@@ -338,8 +363,10 @@ export function CoachConversationExperience({
             <button
               key={reply}
               type="button"
-              disabled={pending}
-              onClick={() => sendContent(reply)}
+              disabled={busy}
+              onClick={() => {
+                void sendContent({ content: reply });
+              }}
               className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
             >
               {reply}
@@ -349,10 +376,11 @@ export function CoachConversationExperience({
       ) : null}
 
       <CoachComposer
+        conversationId={conversationId}
         draft={draft}
-        pending={pending}
+        pending={busy}
         onDraftChange={setDraft}
-        onSend={({ content, image }) => sendContent(content, image)}
+        onSend={sendContent}
         onTranscribe={transcribeCoachAudio}
       />
     </div>
