@@ -9,6 +9,7 @@ import {
   type ProfileGoalsData,
   type UpdateProfileInput,
 } from "@/app/actions/profile";
+import { NotificationSettings } from "@/components/profile/NotificationSettings";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import { OptionSelector } from "@/components/today/OptionSelector";
 import {
@@ -304,6 +305,8 @@ export function ProfileGoalsExperience() {
         Update your details without repeating onboarding. Changes flow through
         to Coach, Nutrition, Today and Training.
       </p>
+
+      <NotificationSettings />
 
       {goalWarning ? (
         <section className="mt-8 space-y-4">

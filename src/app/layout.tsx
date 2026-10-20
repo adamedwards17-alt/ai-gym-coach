@@ -24,6 +24,12 @@ export const metadata: Metadata = {
   },
   description:
     "An AI-powered personal fitness coach to help you get leaner, build muscle, and stay consistent.",
+  applicationName: "AI Gym Coach",
+  appleWebApp: {
+    capable: true,
+    title: "AI Gym Coach",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
