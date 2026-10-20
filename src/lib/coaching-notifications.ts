@@ -60,6 +60,8 @@ export type CoachingCheckIn = {
   checkInDate: string;
   createdAt: string;
   plannedTraining: string;
+  /** Set when the structured evening check-in for this date is finished. */
+  eveningCompleted?: boolean;
 };
 
 export type CoachingMeal = {
@@ -366,6 +368,13 @@ function recentMeal(facts: CoachingFacts, clock: ZonedClock): boolean {
 }
 
 function eveningDone(facts: CoachingFacts, clock: ZonedClock): boolean {
+  if (
+    facts.checkIns.some(
+      (row) => row.checkInDate === clock.date && row.eveningCompleted,
+    )
+  ) {
+    return true;
+  }
   const lateMessage = facts.coachMessages.some((row) => {
     const zoned = zonedClock(new Date(row.createdAt), facts.timeZone);
     return zoned.date === clock.date && zoned.minutes >= 17 * 60;
@@ -446,8 +455,8 @@ function decisionFor(
   return {
     purpose,
     title: "AI Gym Coach",
-    body: "Quick check-in: how did today go? Let's make tomorrow a good one.",
-    url: "/coach?intent=evening",
+    body: "Evening check-in is ready. We'll look at today's training and food log together.",
+    url: `/today/evening?date=${clock.date}`,
   };
 }
 

@@ -1,0 +1,504 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  loadEveningCheckIn,
+  saveEveningCheckIn,
+  type EveningCheckInPayload,
+} from "@/app/actions/evening-check-in";
+import { estimateNutritionFood, saveNutritionEntry } from "@/app/actions/nutrition";
+import { copyNutritionEntriesToDate, loadQuickMealContext } from "@/app/actions/nutrition-quick-log";
+import { buttonClassName } from "@/components/ui/Button";
+import { Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui/surfaces";
+import {
+  buildEveningPlan,
+  foodAlreadyLogged,
+  type EveningAnswers,
+  type EveningMainMeal,
+  type EveningStep,
+} from "@/lib/evening-check-in";
+import type { NutritionEstimate } from "@/lib/nutrition";
+import { labelForMealType } from "@/lib/nutrition";
+import { buildNutritionUsuals, formatUsualServing } from "@/lib/nutrition-usuals";
+
+export function EveningCheckInExperience({ date }: { date: string | null }) {
+  const router = useRouter();
+  const [data, setData] = useState<EveningCheckInPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loggingMeal, setLoggingMeal] = useState<EveningMainMeal | "snack" | null>(null);
+
+  const reload = useCallback(async () => {
+    const result = await loadEveningCheckIn(date);
+    if (result.status !== "ok") {
+      setError(result.message);
+      return;
+    }
+    setData(result.data);
+    setError(null);
+  }, [date]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void reload();
+    });
+  }, [reload]);
+
+  const plan = useMemo(
+    () => (data ? buildEveningPlan(data.day, data.answers) : null),
+    [data],
+  );
+
+  async function persist(answers: EveningAnswers, complete = false) {
+    if (!data) {
+      return;
+    }
+    setBusy(true);
+    const result = await saveEveningCheckIn({
+      date: data.date,
+      answers,
+      complete,
+    });
+    setBusy(false);
+    if (result.status !== "ok") {
+      setError(result.message);
+      return;
+    }
+    setData(result.data);
+    setError(null);
+  }
+
+  if (!data || !plan) {
+    return (
+      <p className="px-5 py-16 text-center text-[13px] text-muted">
+        {error ?? "Loading…"}
+      </p>
+    );
+  }
+
+  const step = plan.steps[0] ?? null;
+  const total = plan.answered + plan.remaining;
+
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-5 pb-28 pt-8 sm:max-w-lg sm:px-6">
+      <PageHeader
+        eyebrow="Today"
+        title="Evening check-in"
+        detail="A short look at the day you actually logged."
+        action={
+          <Link href="/today" className="text-[13px] font-medium text-primary">
+            Close
+          </Link>
+        }
+      />
+
+      {total > 0 ? (
+        <p className="text-[13px] text-muted">
+          {plan.mode === "review"
+            ? "This check-in is already complete."
+            : plan.remaining === 0
+              ? "Ready to finish."
+              : `${plan.remaining} question${plan.remaining === 1 ? "" : "s"} left`}
+        </p>
+      ) : null}
+
+      {plan.loggedWorkout ? (
+        <Card>
+          <SectionTitle>Training</SectionTitle>
+          <p className="mt-2 text-[16px] font-semibold text-foreground">
+            {plan.loggedWorkout.title}
+          </p>
+          <p className="mt-1 text-[13px] text-muted">
+            Logged
+            {plan.loggedWorkout.durationMinutes
+              ? ` · ${plan.loggedWorkout.durationMinutes} min`
+              : ""}
+          </p>
+        </Card>
+      ) : null}
+
+      <Card>
+        <SectionTitle>Food diary</SectionTitle>
+        <p className="mt-2 text-[20px] font-semibold tracking-tight text-foreground">
+          {plan.totals.calories.toLocaleString()}
+          <span className="text-[14px] font-medium text-muted"> kcal</span>
+          <span className="ml-3 text-[14px] font-medium text-muted">
+            {plan.totals.proteinG}g protein
+          </span>
+        </p>
+        {plan.diary.length === 0 ? (
+          <EmptyState>Nothing logged for this day yet.</EmptyState>
+        ) : (
+          <div className="mt-3 flex flex-col gap-3">
+            {plan.diary.map((group) => (
+              <div key={group.id}>
+                <p className="text-[13px] font-semibold text-foreground">{group.label}</p>
+                <ul className="mt-1 divide-y divide-border">
+                  {group.items.map((item) => (
+                    <li key={item.id} className="py-2">
+                      <p className="text-[14px] text-foreground">
+                        {item.title}
+                        {item.planned ? " · planned" : ""}
+                      </p>
+                      <p className="text-[12px] text-muted">
+                        {item.serving}
+                        {item.nutrition ? ` · ${item.nutrition}` : ""}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {error ? (
+        <p role="alert" className="text-[13px] text-danger-text">{error}</p>
+      ) : null}
+
+      {plan.mode === "review" ? (
+        <Card>
+          <SectionTitle>Saved</SectionTitle>
+          <p className="mt-2 text-[14px] leading-6 text-muted">
+            Your answers are kept. You don’t need to go through the questions again.
+          </p>
+          <Link href="/today" className={`${buttonClassName()} mt-3`}>
+            Back to Today
+          </Link>
+        </Card>
+      ) : loggingMeal ? (
+        <FoodLogger
+          date={data.date}
+          meal={loggingMeal}
+          existing={data.day.meals}
+          busy={busy}
+          onCancel={() => setLoggingMeal(null)}
+          onSaved={() => {
+            setLoggingMeal(null);
+            void reload();
+          }}
+        />
+      ) : step ? (
+        <QuestionCard
+          step={step}
+          busy={busy}
+          onTraining={(answer) => {
+            void persist({ ...data.answers, training: answer }).then(() => {
+              if (answer === "forgot") {
+                router.push("/train");
+              }
+            });
+          }}
+          onMeal={(meal, answer) => {
+            if (answer === "had") {
+              setLoggingMeal(meal);
+              return;
+            }
+            void persist({
+              ...data.answers,
+              meals: { ...data.answers.meals, [meal]: answer },
+            });
+          }}
+          onExtras={(answer) => {
+            if (answer === "more") {
+              setLoggingMeal("snack");
+              return;
+            }
+            void persist({ ...data.answers, extras: "none" });
+          }}
+          onChoice={(id, value) => {
+            void persist({ ...data.answers, [id]: value });
+          }}
+        />
+      ) : (
+        <Card>
+          <SectionTitle>That’s the day</SectionTitle>
+          <p className="mt-2 text-[14px] leading-6 text-muted">
+            Training, food and recovery are recorded.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            className={`${buttonClassName()} mt-3`}
+            onClick={() => void persist(data.answers, true)}
+          >
+            {busy ? "Saving…" : "Finish check-in"}
+          </button>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function QuestionCard({
+  step,
+  busy,
+  onTraining,
+  onMeal,
+  onExtras,
+  onChoice,
+}: {
+  step: EveningStep;
+  busy: boolean;
+  onTraining: (answer: "rest" | "forgot") => void;
+  onMeal: (meal: EveningMainMeal, answer: "had" | "skipped" | "later") => void;
+  onExtras: (answer: "none" | "more") => void;
+  onChoice: (id: EveningStep["id"], value: string | number) => void;
+}) {
+  return (
+    <Card>
+      <SectionTitle>Question</SectionTitle>
+      <p className="mt-2 text-[16px] font-semibold leading-6 text-foreground">
+        {step.kind === "training" || step.kind === "meal" || step.kind === "extras" || step.kind === "choice"
+          ? step.prompt
+          : ""}
+      </p>
+      {step.kind === "training" && step.detail ? (
+        <p className="mt-1 text-[13px] leading-5 text-muted">{step.detail}</p>
+      ) : null}
+      <div className="mt-3 flex flex-col gap-2">
+        {step.kind === "training" ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              className={buttonClassName()}
+              onClick={() => onTraining("forgot")}
+            >
+              I trained — log it
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className={buttonClassName("secondary")}
+              onClick={() => onTraining("rest")}
+            >
+              Rest day
+            </button>
+          </>
+        ) : null}
+        {step.kind === "meal" ? (
+          <>
+            <button type="button" className={buttonClassName()} onClick={() => onMeal(step.meal, "had")}>
+              Log {labelForMealType(step.meal).toLowerCase()}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className={buttonClassName("secondary")}
+              onClick={() => onMeal(step.meal, "skipped")}
+            >
+              I skipped it
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className={buttonClassName("secondary")}
+              onClick={() => onMeal(step.meal, "later")}
+            >
+              Not yet
+            </button>
+          </>
+        ) : null}
+        {step.kind === "extras" ? (
+          <>
+            <button type="button" className={buttonClassName()} onClick={() => onExtras("more")}>
+              Add a snack or drink
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className={buttonClassName("secondary")}
+              onClick={() => onExtras("none")}
+            >
+              Diary is complete
+            </button>
+          </>
+        ) : null}
+        {step.kind === "choice"
+          ? step.options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={busy}
+                className={buttonClassName("secondary")}
+                onClick={() =>
+                  onChoice(
+                    step.id,
+                    step.id === "energy" ? Number(option.id) : option.id,
+                  )
+                }
+              >
+                {option.label}
+              </button>
+            ))
+          : null}
+      </div>
+    </Card>
+  );
+}
+
+function FoodLogger({
+  date,
+  meal,
+  existing,
+  busy,
+  onCancel,
+  onSaved,
+}: {
+  date: string;
+  meal: EveningMainMeal | "snack";
+  existing: EveningCheckInPayload["day"]["meals"];
+  busy: boolean;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [usuals, setUsuals] = useState<ReturnType<typeof buildNutritionUsuals>>([]);
+  const [description, setDescription] = useState("");
+  const [estimate, setEstimate] = useState<NutritionEstimate | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    void loadQuickMealContext(date).then((result) => {
+      if (result.status !== "ok") {
+        return;
+      }
+      const items = buildNutritionUsuals(result.context.history).filter(
+        (item) => item.mealType === meal || (meal === "snack" && item.mealType === "drink"),
+      );
+      setUsuals(items);
+    });
+  }, [date, meal]);
+
+  async function addUsual(id: string, name: string) {
+    if (foodAlreadyLogged(existing, name)) {
+      setNote("That’s already in the diary.");
+      return;
+    }
+    setWorking(true);
+    const result = await copyNutritionEntriesToDate({
+      loggedDate: date,
+      sourceEntryIds: [id],
+    });
+    setWorking(false);
+    if (result.status !== "ok" || result.added === 0) {
+      setNote(result.status === "ok" ? "That’s already in the diary." : result.message);
+      return;
+    }
+    onSaved();
+  }
+
+  async function reviewDescription() {
+    const text = description.trim();
+    if (!text) {
+      return;
+    }
+    if (foodAlreadyLogged(existing, text)) {
+      setNote("That’s already in the diary.");
+      return;
+    }
+    setWorking(true);
+    const result = await estimateNutritionFood({ description: text });
+    setWorking(false);
+    if (result.status === "ok" || result.status === "needs_review") {
+      setEstimate(result.estimate);
+      setNote(null);
+      return;
+    }
+    setNote(result.status === "needs_clarification" ? result.question : result.message);
+  }
+
+  async function confirmEstimate() {
+    if (!estimate) {
+      return;
+    }
+    setWorking(true);
+    const result = await saveNutritionEntry({
+      loggedDate: date,
+      description: description.trim(),
+      mealType: meal,
+      status: "eaten",
+      estimate,
+      portions: 1,
+    });
+    setWorking(false);
+    if (result.status !== "saved") {
+      setNote(result.message);
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <Card>
+      <SectionTitle>Add {labelForMealType(meal).toLowerCase()}</SectionTitle>
+      {usuals.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-2">
+          {usuals.slice(0, 4).map((item) => (
+            <li key={item.key}>
+              <button
+                type="button"
+                disabled={working || busy}
+                className={`${buttonClassName("secondary")} h-auto w-full justify-start py-2 text-left`}
+                onClick={() => void addUsual(item.sourceEntryId, item.name)}
+              >
+                <span>
+                  <span className="block">{item.name}</span>
+                  <span className="block text-[12px] font-medium text-muted">
+                    {formatUsualServing(item.portions)} · {Math.round(item.calories)} kcal
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <label className="mt-3 block text-[13px] text-muted">
+        Or describe it
+        <input
+          value={description}
+          onChange={(event) => {
+            setDescription(event.target.value);
+            setEstimate(null);
+          }}
+          className="mt-1 h-11 w-full rounded-xl border border-border bg-background px-3 text-[15px] text-foreground"
+        />
+      </label>
+      {estimate ? (
+        <div className="mt-3 rounded-xl bg-background px-3 py-3">
+          <p className="text-[14px] font-semibold text-foreground">
+            {estimate.displayName || description}
+          </p>
+          <p className="mt-1 text-[13px] text-muted">
+            {estimate.calories} kcal · {estimate.proteinG}g protein · 1 serving
+          </p>
+          <button
+            type="button"
+            disabled={working}
+            className={`${buttonClassName()} mt-3`}
+            onClick={() => void confirmEstimate()}
+          >
+            {working ? "Saving…" : "Save to diary"}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={working || !description.trim()}
+          className={`${buttonClassName()} mt-3`}
+          onClick={() => void reviewDescription()}
+        >
+          {working ? "Checking…" : "Review food"}
+        </button>
+      )}
+      {note ? <p className="mt-2 text-[13px] text-muted">{note}</p> : null}
+      <button type="button" className={`${buttonClassName("ghost")} mt-2`} onClick={onCancel}>
+        Back
+      </button>
+    </Card>
+  );
+}

@@ -217,6 +217,9 @@ function RecoverySection({
         <button type="button" onClick={onStart} className={`${buttonClassName()} mt-3`}>
           Start check-in
         </button>
+        <Link href="/today/evening" className={`${buttonClassName("secondary")} mt-2`}>
+          Evening check-in
+        </Link>
       </Card>
     );
   }
@@ -253,6 +256,9 @@ function RecoverySection({
       >
         Edit check-in
       </button>
+      <Link href="/today/evening" className={`${buttonClassName("secondary")} mt-2`}>
+        Evening check-in
+      </Link>
     </Card>
   );
 }

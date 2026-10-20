@@ -131,11 +131,7 @@ export async function loadTodaysCheckIn(
       !isSleepScore(row.sleep_rating) ||
       !isPlanId(row.planned_training)
     ) {
-      console.error("[check-in] Loaded row failed validation");
-      return {
-        status: "error",
-        message: "Today’s check-in couldn’t be loaded. Try again.",
-      };
+      return { status: "empty", checkInDate };
     }
 
     return {

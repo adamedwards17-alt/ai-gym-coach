@@ -16,6 +16,7 @@ import {
   type CoachingPlanEntry,
   type CoachingSession,
 } from "@/lib/coaching-notifications";
+import { eveningReviewIsComplete } from "@/lib/evening-check-in";
 import { configureWebPush, sendWebPush } from "@/lib/web-push-server";
 
 type AdminClient = SupabaseClient;
@@ -72,7 +73,7 @@ export async function loadCoachingSnapshots(
     admin.from("push_subscriptions").select("user_id").in("user_id", ids),
     admin
       .from("daily_check_ins")
-      .select("user_id, check_in_date, created_at, planned_training")
+      .select("user_id, check_in_date, created_at, planned_training, evening_review")
       .in("user_id", ids)
       .gte("check_in_date", sinceDate),
     admin
@@ -159,18 +160,16 @@ function snapshotForUser(
 ): CoachingFacts {
   const own = (row: Record<string, unknown>) => row.user_id === userId;
   const checkInRows: CoachingCheckIn[] = source.checkIns.filter(own).flatMap((row) => {
-    if (
-      typeof row.check_in_date !== "string" ||
-      typeof row.created_at !== "string" ||
-      typeof row.planned_training !== "string"
-    ) {
+    if (typeof row.check_in_date !== "string" || typeof row.created_at !== "string") {
       return [];
     }
     return [
       {
         checkInDate: row.check_in_date,
         createdAt: row.created_at,
-        plannedTraining: row.planned_training,
+        plannedTraining:
+          typeof row.planned_training === "string" ? row.planned_training : "",
+        eveningCompleted: eveningReviewIsComplete(row.evening_review),
       },
     ];
   });
