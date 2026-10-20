@@ -26,7 +26,7 @@ VAPID_PRIVATE_KEY=paste_private_key
 VAPID_SUBJECT=mailto:you@example.com
 ```
 
-`VAPID_SUBJECT` must be a `mailto:` or `https:` URL. It is not a secret. It identifies the sender to push services.
+`VAPID_SUBJECT` must be a `mailto:` or `https:` URL with a real host. It is not a secret. It identifies the sender to push services. `mailto:coach@localhost` is rejected by Apple with HTTP 403 `BadJwtToken`, which makes the test button fail on iPhone. If the saved subject is localhost, the server uses the Vercel production site URL instead, or `https://github.com/adamedwards17-alt/ai-gym-coach` when that is unavailable. A real `mailto:` address still takes priority.
 
 Add the same three variables in the Vercel project settings, then redeploy. The public key is exposed to the browser by design. The private key must stay on the server.
 

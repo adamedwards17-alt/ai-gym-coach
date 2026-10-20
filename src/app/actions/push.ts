@@ -6,6 +6,9 @@ import {
   isExpiredPushStatus,
   parsePushSubscription,
   pushEndpointHost,
+  pushProviderReason,
+  resolveVapidSubject,
+  testPushFailureMessage,
   type PushSubscriptionInput,
 } from "@/lib/push-subscription";
 import { createClient } from "@/lib/supabase/server";
@@ -15,12 +18,15 @@ export type PushActionResult =
   | { status: "ok"; message: string }
   | { status: "error"; message: string };
 
-let vapidReady = false;
-
-function configureVapid(): { ok: true } | { ok: false; message: string } {
+function configureVapid():
+  | { ok: true; subjectLabel: string }
+  | { ok: false; message: string } {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
   const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
-  const subject = process.env.VAPID_SUBJECT?.trim() || "mailto:coach@localhost";
+  const resolved = resolveVapidSubject(
+    process.env.VAPID_SUBJECT,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  );
 
   if (!publicKey || !privateKey) {
     return {
@@ -30,12 +36,27 @@ function configureVapid(): { ok: true } | { ok: false; message: string } {
     };
   }
 
-  if (!vapidReady) {
-    webpush.setVapidDetails(subject, publicKey, privateKey);
-    vapidReady = true;
+  try {
+    webpush.setVapidDetails(resolved.subject, publicKey, privateKey);
+  } catch (configError) {
+    const detail =
+      configError instanceof Error ? configError.name : "VapidConfigError";
+    console.error("[push] VAPID configuration rejected:", detail);
+    return {
+      ok: false,
+      message:
+        "Push keys on the server are not valid. Check the VAPID variables and redeploy.",
+    };
   }
 
-  return { ok: true };
+  if (resolved.replacedLocalhost) {
+    console.warn(
+      "[push] VAPID subject is localhost, which Apple rejects. Using",
+      resolved.subjectLabel,
+    );
+  }
+
+  return { ok: true, subjectLabel: resolved.subjectLabel };
 }
 
 export async function savePushSubscription(
@@ -147,6 +168,8 @@ export async function sendTestPushNotification(): Promise<PushActionResult> {
   }
 
   let delivered = 0;
+  let skipped = 0;
+  let failureMessage = testPushFailureMessage(undefined, undefined);
   for (const row of rows) {
     if (
       typeof row.endpoint !== "string" ||
@@ -154,6 +177,7 @@ export async function sendTestPushNotification(): Promise<PushActionResult> {
       typeof row.auth !== "string" ||
       typeof row.id !== "string"
     ) {
+      skipped += 1;
       continue;
     }
 
@@ -178,12 +202,21 @@ export async function sendTestPushNotification(): Promise<PushActionResult> {
         typeof sendError.statusCode === "number"
           ? sendError.statusCode
           : undefined;
+      const reason =
+        sendError &&
+        typeof sendError === "object" &&
+        "body" in sendError
+          ? pushProviderReason(sendError.body)
+          : undefined;
 
       console.error(
         "[push] Test send failed:",
         statusCode ?? "unknown",
+        reason ?? "no-reason",
         pushEndpointHost(row.endpoint),
+        vapid.subjectLabel,
       );
+      failureMessage = testPushFailureMessage(statusCode, reason);
 
       if (isExpiredPushStatus(statusCode)) {
         await supabase
@@ -195,11 +228,14 @@ export async function sendTestPushNotification(): Promise<PushActionResult> {
     }
   }
 
+  if (skipped > 0) {
+    console.error("[push] Skipped subscriptions with missing fields:", skipped);
+  }
+
   if (delivered === 0) {
     return {
       status: "error",
-      message:
-        "The test couldn’t be delivered. Turn notifications on again and retry.",
+      message: failureMessage,
     };
   }
 
