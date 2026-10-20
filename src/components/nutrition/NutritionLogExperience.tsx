@@ -15,6 +15,7 @@ import {
 } from "@/app/actions/nutrition";
 import { BarcodeScanPanel } from "@/components/nutrition/BarcodeScanPanel";
 import { ManualNutritionForm } from "@/components/nutrition/ManualNutritionForm";
+import { MyUsualsPanel } from "@/components/nutrition/MyUsualsPanel";
 import { NutritionConfirmDialog } from "@/components/nutrition/NutritionConfirmDialog";
 import { NutritionDaySummaryCard } from "@/components/nutrition/NutritionDaySummary";
 import { NutritionDescriptionInput } from "@/components/nutrition/NutritionDescriptionInput";
@@ -1562,6 +1563,13 @@ export function NutritionLogExperience({
         </div>
       ) : (
         <div className="flex flex-col gap-8">
+          <MyUsualsPanel
+            loggedDate={activeDate}
+            existingEntries={todayEntries}
+            onAdded={async () => {
+              await refreshDay(activeDate);
+            }}
+          />
           <section>
             <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
               Today
