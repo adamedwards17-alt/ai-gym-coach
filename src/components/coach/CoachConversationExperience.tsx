@@ -32,10 +32,12 @@ import type { TrainingPlanProposalRecord } from "@/lib/training-plan";
 
 type CoachConversationExperienceProps = {
   conversationId: string;
+  initialDraft?: string;
 };
 
 export function CoachConversationExperience({
   conversationId,
+  initialDraft = "",
 }: CoachConversationExperienceProps) {
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -46,7 +48,7 @@ export function CoachConversationExperience({
   const [changeProposals, setChangeProposals] = useState<
     CoachChangeProposalRecord[]
   >([]);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);

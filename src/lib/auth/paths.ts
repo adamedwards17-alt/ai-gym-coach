@@ -6,6 +6,7 @@ export function isPublicPath(pathname: string): boolean {
   return (
     pathname === "/" ||
     pathname === LOGIN_PATH ||
-    pathname.startsWith("/auth/")
+    pathname.startsWith("/auth/") ||
+    pathname === "/api/cron/coaching-notifications"
   );
 }

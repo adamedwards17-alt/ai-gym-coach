@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { openCoachingIntentChat } from "@/app/actions/coaching-intents";
 import {
   createCoachConversation,
   listCoachConversations,
 } from "@/app/actions/coach";
 import type { CoachConversationRecord } from "@/lib/coach";
+import { isCoachingIntent } from "@/lib/coaching-intents";
 
 function formatUpdatedAt(value: string): string {
   const date = new Date(value);
@@ -22,14 +24,32 @@ function formatUpdatedAt(value: string): string {
   }).format(date);
 }
 
-export function CoachHome() {
+export function CoachHome({ intent }: { intent?: string | null }) {
   const router = useRouter();
+  const intentStarted = useRef(false);
   const [conversations, setConversations] = useState<
     CoachConversationRecord[]
   >([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!intent || !isCoachingIntent(intent) || intentStarted.current) {
+      return;
+    }
+    intentStarted.current = true;
+    void openCoachingIntentChat(intent).then((result) => {
+      if (result.status !== "ok") {
+        setError(result.message);
+        return;
+      }
+      const draft = result.draft
+        ? `?draft=${encodeURIComponent(result.draft)}`
+        : "";
+      router.replace(`/coach/${result.conversationId}${draft}`);
+    });
+  }, [intent, router]);
 
   useEffect(() => {
     let cancelled = false;

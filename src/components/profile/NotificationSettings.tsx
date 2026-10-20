@@ -2,12 +2,32 @@
 
 import { useEffect, useState } from "react";
 import {
+  getCoachingPreferences,
+  updateCoachingPreferences,
+} from "@/app/actions/coaching-preferences";
+import {
   removePushSubscription,
   savePushSubscription,
   sendTestPushNotification,
 } from "@/app/actions/push";
+import { DEFAULT_TIME_ZONE } from "@/lib/coaching-notifications";
 
 type SupportState = "checking" | "ready" | "ios-install" | "unsupported" | "denied";
+
+const TIME_ZONES = [
+  "Europe/London",
+  "Europe/Dublin",
+  "Europe/Paris",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Asia/Kolkata",
+];
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -38,11 +58,23 @@ export function NotificationSettings() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [coachingEnabled, setCoachingEnabled] = useState(true);
+  const [timeZone, setTimeZone] = useState(DEFAULT_TIME_ZONE);
+  const [prefsReady, setPrefsReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function prepare() {
+      const prefs = await getCoachingPreferences();
+      if (!cancelled && prefs.status === "ok") {
+        setCoachingEnabled(prefs.preferences.enabled);
+        setTimeZone(prefs.preferences.timeZone);
+        setPrefsReady(true);
+      } else if (!cancelled) {
+        setPrefsReady(true);
+      }
+
       if (isIos() && !isStandaloneDisplay()) {
         if (!cancelled) {
           setSupport("ios-install");
@@ -222,8 +254,8 @@ export function NotificationSettings() {
       {support === "ready" && !subscribed ? (
         <div className="mt-3">
           <p className="text-[14px] leading-6 text-muted">
-            Get a test notification on this device. Coaching reminders are not
-            scheduled yet.
+            Turn on notifications for this device, then coaching reminders can
+            arrive when they are useful.
           </p>
           <button
             type="button"
@@ -259,6 +291,78 @@ export function NotificationSettings() {
           >
             Turn off
           </button>
+        </div>
+      ) : null}
+      {prefsReady ? (
+        <div className="mt-4 border-t border-border pt-4">
+          <label className="flex items-start gap-3 text-[14px] leading-6">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={coachingEnabled}
+              disabled={busy}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setCoachingEnabled(enabled);
+                setBusy(true);
+                setError(null);
+                void updateCoachingPreferences({ enabled, timeZone }).then((result) => {
+                  setBusy(false);
+                  if (result.status !== "ok") {
+                    setCoachingEnabled(!enabled);
+                    setError(result.message);
+                    return;
+                  }
+                  setMessage(
+                    enabled
+                      ? "Coaching reminders are on."
+                      : "Coaching reminders are off. Test notifications still work.",
+                  );
+                });
+              }}
+            />
+            <span>
+              Coaching reminders
+              <span className="mt-1 block text-[13px] leading-6 text-muted">
+                At most two a day, never overnight (9:30pm–7:00am), and never for
+                something you have already done. The test button is separate.
+              </span>
+            </span>
+          </label>
+          <label className="mt-4 block text-[13px] leading-6 text-muted">
+            Timezone
+            <select
+              value={timeZone}
+              disabled={busy}
+              onChange={(event) => {
+                const nextZone = event.target.value;
+                setTimeZone(nextZone);
+                setBusy(true);
+                setError(null);
+                void updateCoachingPreferences({
+                  enabled: coachingEnabled,
+                  timeZone: nextZone,
+                }).then((result) => {
+                  setBusy(false);
+                  if (result.status !== "ok") {
+                    setError(result.message);
+                    return;
+                  }
+                  setMessage("Timezone saved.");
+                });
+              }}
+              className="mt-2 h-11 w-full rounded-xl border border-border bg-transparent px-3 text-[14px] text-foreground"
+            >
+              {TIME_ZONES.includes(timeZone) ? null : (
+                <option value={timeZone}>{timeZone}</option>
+              )}
+              {TIME_ZONES.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       ) : null}
       {message ? (

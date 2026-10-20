@@ -1,62 +1,24 @@
 "use server";
 
-import webpush from "web-push";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
   isExpiredPushStatus,
   parsePushSubscription,
   pushEndpointHost,
   pushProviderReason,
-  resolveVapidSubject,
   testPushFailureMessage,
   type PushSubscriptionInput,
 } from "@/lib/push-subscription";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { configureWebPush, sendWebPush } from "@/lib/web-push-server";
 
 export type PushActionResult =
   | { status: "ok"; message: string }
   | { status: "error"; message: string };
 
-function configureVapid():
-  | { ok: true; subjectLabel: string }
-  | { ok: false; message: string } {
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
-  const resolved = resolveVapidSubject(
-    process.env.VAPID_SUBJECT,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-  );
-
-  if (!publicKey || !privateKey) {
-    return {
-      ok: false,
-      message:
-        "Push isn’t configured yet. Add the VAPID keys on the server and try again.",
-    };
-  }
-
-  try {
-    webpush.setVapidDetails(resolved.subject, publicKey, privateKey);
-  } catch (configError) {
-    const detail =
-      configError instanceof Error ? configError.name : "VapidConfigError";
-    console.error("[push] VAPID configuration rejected:", detail);
-    return {
-      ok: false,
-      message:
-        "Push keys on the server are not valid. Check the VAPID variables and redeploy.",
-    };
-  }
-
-  if (resolved.replacedLocalhost) {
-    console.warn(
-      "[push] VAPID subject is localhost, which Apple rejects. Using",
-      resolved.subjectLabel,
-    );
-  }
-
-  return { ok: true, subjectLabel: resolved.subjectLabel };
+function configureVapid() {
+  return configureWebPush();
 }
 
 export async function savePushSubscription(
@@ -182,16 +144,16 @@ export async function sendTestPushNotification(): Promise<PushActionResult> {
     }
 
     try {
-      await webpush.sendNotification(
+      await sendWebPush(
         {
           endpoint: row.endpoint,
           keys: { p256dh: row.p256dh, auth: row.auth },
         },
-        JSON.stringify({
+        {
           title: "AI Gym Coach",
           body: "Test notification. Push is working on this device.",
           url: "/profile",
-        }),
+        },
       );
       delivered += 1;
     } catch (sendError) {
