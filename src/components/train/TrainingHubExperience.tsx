@@ -19,7 +19,9 @@ import {
 import { InGymWorkoutExperience } from "@/components/train/InGymWorkoutExperience";
 import { PlanProposalCard } from "@/components/train/PlanProposalCard";
 import { WorkoutLogSheet } from "@/components/train/WorkoutLogSheet";
+import { buttonClassName } from "@/components/ui/Button";
 import { CompactProgressBar } from "@/components/ui/CompactProgressBar";
+import { cardClass, Card, PageHeader, SectionTitle, StatusBadge } from "@/components/ui/surfaces";
 import { buildStepProgress } from "@/lib/activity-steps";
 import type { TrainingProgrammeSummary } from "@/lib/workout-tracking";
 import {
@@ -419,17 +421,10 @@ export function TrainingHubExperience() {
         />
       ) : null}
 
-      <header className="mb-6">
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Train
-        </p>
-        <h1 className="mt-2 font-serif text-[1.85rem] leading-tight tracking-tight sm:text-4xl">
-          Training plan
-        </h1>
-      </header>
+      <PageHeader eyebrow="Train" title="Training plan" />
 
       {programme ? (
-        <section className="mb-6 rounded-2xl border border-border/70 px-4 py-3.5">
+        <section className={`${cardClass} mb-4 px-4 py-3.5`}>
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
             Active phase
           </p>
@@ -459,8 +454,8 @@ export function TrainingHubExperience() {
           ) : null}
         </section>
       ) : (
-        <section className="mb-6 rounded-2xl border border-border/70 px-4 py-3.5">
-          <p className="text-[14px] leading-6 text-foreground/90">
+        <section className={`${cardClass} mb-4 px-4 py-3.5`}>
+          <p className="text-[14px] leading-6 text-foreground">
             Activate the 6-week muscle-building programme to load Workouts 1–3,
             HIIT days and rest days onto your plan.
           </p>
@@ -468,7 +463,7 @@ export function TrainingHubExperience() {
             type="button"
             disabled={activatingProgramme}
             onClick={() => void handleActivateProgramme()}
-            className="mt-3 min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px] disabled:opacity-60"
+            className={`${buttonClassName()} mt-3`}
           >
             {activatingProgramme ? "Activating…" : "Activate programme"}
           </button>
@@ -543,10 +538,8 @@ export function TrainingHubExperience() {
 
       {/* 1. Today's workout — current week only */}
       {viewingCurrentWeek ? (
-        <section className="mb-10">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-            Today&apos;s workout
-          </h2>
+        <section className="mb-8">
+          <SectionTitle>Today&apos;s workout</SectionTitle>
 
           {todayPlans.length === 0 ? (
             <div className="mt-4">
@@ -557,16 +550,16 @@ export function TrainingHubExperience() {
                 Add a session for today, or log what you already did.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
-                <button
+                  <button
                   type="button"
-                  className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                  className={buttonClassName()}
                   onClick={() => setMode({ kind: "plan", date: today })}
                 >
                   Add session
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                  className={buttonClassName("secondary")}
                   onClick={openUnplannedLog}
                 >
                   Log a workout
@@ -574,7 +567,7 @@ export function TrainingHubExperience() {
               </div>
             </div>
           ) : (
-            <ul className="mt-4 space-y-6">
+            <ul className="mt-3 flex flex-col gap-3">
               {todayPlans.map((plan) => {
                 const status = todayPlanStatus({
                   plan,
@@ -585,26 +578,41 @@ export function TrainingHubExperience() {
                 return (
                   <li key={plan.id}>
                     {status === "rest" ? (
-                      <>
-                        <p className="font-serif text-[1.45rem] tracking-tight">
-                          Rest day
-                        </p>
-                        <p className="mt-2 text-[14px] leading-6 text-muted">
+                      <Card>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[18px] font-semibold tracking-tight">
+                            Rest day
+                          </p>
+                          <StatusBadge>Rest</StatusBadge>
+                        </div>
+                        <p className="mt-1 text-[14px] leading-6 text-muted">
                           Recovery counts.
                         </p>
-                      </>
+                      </Card>
                     ) : (
-                      <>
-                        <p className="font-serif text-[1.45rem] tracking-tight">
-                          {plan.title}
-                        </p>
-                        <p className="mt-2 text-[14px] leading-6 text-muted">
+                      <Card>
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-[18px] font-semibold tracking-tight">
+                            {plan.title}
+                          </p>
+                          <StatusBadge
+                            tone={
+                              status === "completed"
+                                ? "done"
+                                : status === "skipped"
+                                  ? "warn"
+                                  : "open"
+                            }
+                          >
+                            {statusLabel(plan.status)}
+                          </StatusBadge>
+                        </div>
+                        <p className="mt-1 text-[14px] leading-6 text-muted">
                           {labelForTrainingType(plan.training_type)}
                           {plan.focus ? ` · ${plan.focus}` : ""}
                           {plan.planned_duration_minutes
-                            ? ` · Planned ${labelForDuration(plan.planned_duration_minutes)}`
+                            ? ` · ${labelForDuration(plan.planned_duration_minutes)}`
                             : ""}
-                          {` · ${statusLabel(plan.status)}`}
                         </p>
                         {status === "completed" && linked ? (
                           <p className="mt-1 text-[13px] text-muted">
@@ -622,7 +630,7 @@ export function TrainingHubExperience() {
                             <>
                               <button
                                 type="button"
-                                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                                className={buttonClassName()}
                                 onClick={() => openComplete(plan)}
                               >
                                 {primaryWorkoutAction(plan.training_type) ===
@@ -632,7 +640,7 @@ export function TrainingHubExperience() {
                               </button>
                               <button
                                 type="button"
-                                className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                                className={buttonClassName("secondary")}
                                 onClick={() =>
                                   setMode({ kind: "skip", entry: plan })
                                 }
@@ -644,7 +652,7 @@ export function TrainingHubExperience() {
                           {status === "completed" && linked ? (
                             <button
                               type="button"
-                              className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                              className={buttonClassName("secondary")}
                               onClick={() =>
                                 setMode({
                                   kind: "compare",
@@ -659,7 +667,7 @@ export function TrainingHubExperience() {
                           {status === "completed" ? (
                             <button
                               type="button"
-                              className="text-[13px] text-muted transition-colors hover:text-foreground"
+                              className={buttonClassName("ghost", "h-9 px-2")}
                               onClick={() => openComplete(plan)}
                             >
                               Edit session
@@ -668,7 +676,7 @@ export function TrainingHubExperience() {
                           {status === "skipped" ? (
                             <button
                               type="button"
-                              className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground"
+                              className={buttonClassName("secondary")}
                               onClick={() =>
                                 setMode({ kind: "skip", entry: plan })
                               }
@@ -678,7 +686,7 @@ export function TrainingHubExperience() {
                           ) : null}
                           <button
                             type="button"
-                            className="text-[13px] text-muted transition-colors hover:text-foreground"
+                            className={buttonClassName("ghost", "h-9 px-2")}
                             onClick={() =>
                               setMode({
                                 kind: "plan",
@@ -690,7 +698,7 @@ export function TrainingHubExperience() {
                             Edit plan
                           </button>
                         </div>
-                      </>
+                      </Card>
                     )}
                   </li>
                 );
@@ -698,7 +706,7 @@ export function TrainingHubExperience() {
               <li>
                 <button
                   type="button"
-                  className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                  className={buttonClassName("secondary")}
                   onClick={openUnplannedLog}
                 >
                   + Log an unplanned workout
@@ -711,13 +719,13 @@ export function TrainingHubExperience() {
 
       {/* 2. Weekly progress — scoped to selected week */}
       {weekProgress ? (
-        <section className="mb-10">
+        <section className={`${cardClass} mb-4 px-4 py-4`}>
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+            <SectionTitle>
               {weekRelation === "future"
                 ? "Week overview"
                 : "Weekly progress"}
-            </h2>
+            </SectionTitle>
             {viewingCurrentWeek ? (
               <button
                 type="button"
@@ -738,12 +746,12 @@ export function TrainingHubExperience() {
                   inputMode="numeric"
                   value={weekTargetDraft}
                   onChange={(event) => setWeekTargetDraft(event.target.value)}
-                  className="h-11 w-28 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
+                  className="h-11 w-28 rounded-full border border-border bg-surface px-4 text-[14px] outline-none focus:border-primary"
                 />
               </label>
               <button
                 type="button"
-                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
                 onClick={() => void handleSaveWeekTarget()}
               >
                 Save target
@@ -753,7 +761,7 @@ export function TrainingHubExperience() {
 
           <div className="mt-4">
             {weekRelation === "future" ? (
-              <div className="rounded-2xl border border-border/70 px-4 py-3">
+              <div className="rounded-xl bg-background px-3 py-3">
                 <p className="text-[14px] text-foreground">
                   {weekProgress.plannedSessions} session
                   {weekProgress.plannedSessions === 1 ? "" : "s"} planned
@@ -793,11 +801,11 @@ export function TrainingHubExperience() {
       ) : null}
 
       {/* 3. Weekly plan */}
-      <section className="mb-10">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+      <section className={`${cardClass} mb-8 px-4 py-4`}>
+        <SectionTitle>
           {weekRelation === "future" ? "Plan ahead" : "Weekly plan"}
-        </h2>
-        <ul className="mt-4 divide-y divide-border/60">
+        </SectionTitle>
+        <ul className="mt-2 divide-y divide-border">
           {weekDays.map((day) => {
             const entries = data
               ? entriesForDate(data.weekPlan, day.date)
@@ -923,12 +931,12 @@ export function TrainingHubExperience() {
                   inputMode="numeric"
                   value={stepTargetDraft}
                   onChange={(event) => setStepTargetDraft(event.target.value)}
-                  className="h-11 w-36 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
+                  className="h-11 w-36 rounded-full border border-border bg-surface px-4 text-[14px] outline-none focus:border-primary"
                 />
               </label>
               <button
                 type="button"
-                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
                 onClick={() => void handleSaveStepTarget()}
               >
                 Save target
@@ -963,7 +971,7 @@ export function TrainingHubExperience() {
                     value={stepsDraft}
                     placeholder="e.g. 7420"
                     onChange={(event) => setStepsDraft(event.target.value)}
-                    className="h-11 w-36 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
+                    className="h-11 w-36 rounded-full border border-border bg-surface px-4 text-[14px] outline-none focus:border-primary"
                   />
                 </label>
                 <button
@@ -1115,8 +1123,8 @@ function SkipWorkoutFlow({
             type="button"
             className={`rounded-full border px-4 py-3 text-left text-[14px] transition-colors ${
               reason === option.id
-                ? "border-foreground bg-foreground text-background"
-                : "border-border text-foreground hover:border-white/20"
+                ? "border-primary bg-primary text-white"
+                : "border-border text-foreground hover:border-primary/40"
             }`}
             onClick={() => setReason(option.id)}
           >
@@ -1132,7 +1140,7 @@ function SkipWorkoutFlow({
           onChange={(event) => setNotes(event.target.value)}
           rows={3}
           placeholder="e.g. Away until Thursday"
-          className="rounded-2xl border border-border bg-surface/60 px-4 py-3 text-[14px] outline-none"
+          className="rounded-2xl border border-border bg-surface px-4 py-3 text-[14px] outline-none"
         />
       </label>
 
@@ -1145,7 +1153,7 @@ function SkipWorkoutFlow({
       <button
         type="button"
         disabled={!reason || busy}
-        className="mt-6 inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+        className="mt-6 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
         onClick={() => void handleContinue()}
       >
         {busy ? "Starting Coach…" : "Continue with Coach"}
@@ -1237,7 +1245,7 @@ function PlanEditor({
           onChange={(event) =>
             setTrainingType(event.target.value as PlanTrainingTypeId)
           }
-          className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none"
+          className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] outline-none"
         >
           {planTrainingTypeOptions.map((option) => (
             <option key={option.id} value={option.id}>
@@ -1255,7 +1263,7 @@ function PlanEditor({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="e.g. Upper body"
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] outline-none"
             />
           </label>
           <label className="mt-4 flex flex-col gap-1.5">
@@ -1264,7 +1272,7 @@ function PlanEditor({
               value={focus}
               onChange={(event) => setFocus(event.target.value)}
               placeholder="e.g. Push / legs"
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] outline-none"
             />
           </label>
           <label className="mt-4 flex flex-col gap-1.5">
@@ -1275,7 +1283,7 @@ function PlanEditor({
               inputMode="numeric"
               value={duration}
               onChange={(event) => setDuration(event.target.value)}
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] outline-none"
             />
           </label>
         </>
@@ -1287,7 +1295,7 @@ function PlanEditor({
           type="date"
           value={moveDate}
           onChange={(event) => setMoveDate(event.target.value)}
-          className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none"
+          className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] outline-none"
         />
       </label>
 
@@ -1301,7 +1309,7 @@ function PlanEditor({
         <button
           type="button"
           disabled={saving}
-          className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
           onClick={() => void handleSave()}
         >
           {saving ? "Saving…" : "Save"}

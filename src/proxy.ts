@@ -1,6 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 import { copyCookies } from "@/lib/auth/copy-cookies";
+import {
+  LOCAL_PREVIEW_COOKIE,
+  localPreviewRequestAllowed,
+} from "@/lib/auth/local-preview";
 import { isPublicPath, LOGIN_PATH } from "@/lib/auth/paths";
 import {
   getSupabasePublicEnv,
@@ -13,6 +17,16 @@ import {
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
+  const preview = localPreviewRequestAllowed({
+    nodeEnv: process.env.NODE_ENV,
+    vercel: process.env.VERCEL,
+    host: request.headers.get("x-forwarded-host") ?? request.nextUrl.host,
+    cookieValue: request.cookies.get(LOCAL_PREVIEW_COOKIE)?.value,
+  });
+
+  if (preview) {
+    return supabaseResponse;
+  }
 
   if (!isSupabaseConfigured()) {
     if (!isPublicPath(pathname)) {

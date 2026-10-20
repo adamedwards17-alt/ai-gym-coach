@@ -5,6 +5,8 @@ import {
   acceptCoachChangeProposal,
   rejectCoachChangeProposal,
 } from "@/app/actions/coach-changes";
+import { buttonClassName } from "@/components/ui/Button";
+import { cardClass } from "@/components/ui/surfaces";
 import {
   describeCoachChangeProposal,
   type CoachChangeProposalRecord,
@@ -31,14 +33,14 @@ export function CoachChangeProposalCard({
 
   if (done === "accepted") {
     return (
-      <div className="rounded-2xl border border-border/80 bg-surface/40 px-4 py-3">
+      <div className={`${cardClass} px-4 py-3`}>
         <p className="text-[13px] text-foreground">Change saved.</p>
       </div>
     );
   }
   if (done === "rejected") {
     return (
-      <div className="rounded-2xl border border-border/80 bg-surface/40 px-4 py-3">
+      <div className={`${cardClass} px-4 py-3`}>
         <p className="text-[13px] text-muted">Original settings kept.</p>
       </div>
     );
@@ -47,7 +49,7 @@ export function CoachChangeProposalCard({
   const lines = describeCoachChangeProposal(proposal);
 
   return (
-    <div className="rounded-2xl border border-border/80 bg-surface/40 px-4 py-4">
+    <div className={`${cardClass} px-4 py-4`}>
       <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
         {KIND_LABEL[proposal.kind]}
       </p>
@@ -70,7 +72,7 @@ export function CoachChangeProposalCard({
         <button
           type="button"
           disabled={busy}
-          className="inline-flex h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
+          className={buttonClassName()}
           onClick={() => {
             void (async () => {
               setBusy(true);
@@ -93,7 +95,7 @@ export function CoachChangeProposalCard({
         <button
           type="button"
           disabled={busy}
-          className="inline-flex h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground disabled:opacity-60"
+          className={buttonClassName("secondary")}
           onClick={() => {
             void (async () => {
               setBusy(true);

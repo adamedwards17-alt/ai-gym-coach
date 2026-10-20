@@ -10,7 +10,7 @@ export function UserResponse({ label, onEdit }: UserResponseProps) {
         type="button"
         onClick={onEdit}
         aria-label={`Change answer: ${label}`}
-        className="max-w-[85%] rounded-2xl rounded-br-md border border-border bg-white/8 px-4 py-2.5 text-left text-[14px] text-foreground transition-colors hover:bg-white/12"
+        className="max-w-[85%] rounded-2xl rounded-br-md border border-border bg-primary/10 px-4 py-2.5 text-left text-[14px] text-foreground transition-colors hover:bg-primary/15"
       >
         {label}
       </button>

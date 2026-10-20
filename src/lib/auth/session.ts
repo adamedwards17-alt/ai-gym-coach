@@ -1,9 +1,43 @@
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { ONBOARDING_PATH, TODAY_PATH } from "@/lib/auth/paths";
+import {
+  isLocalPreviewUser,
+  LOCAL_PREVIEW_COOKIE,
+  LOCAL_PREVIEW_USER_ID,
+  localPreviewRequestAllowed,
+} from "@/lib/auth/local-preview";
 import type { User } from "@supabase/supabase-js";
 
+export async function isLocalPreviewActive(): Promise<boolean> {
+  const headerList = await headers();
+  const cookieStore = await cookies();
+  return localPreviewRequestAllowed({
+    nodeEnv: process.env.NODE_ENV,
+    vercel: process.env.VERCEL,
+    host: headerList.get("x-forwarded-host") ?? headerList.get("host"),
+    cookieValue: cookieStore.get(LOCAL_PREVIEW_COOKIE)?.value,
+  });
+}
+
+function localPreviewUser(): User {
+  return {
+    id: LOCAL_PREVIEW_USER_ID,
+    aud: "authenticated",
+    role: "authenticated",
+    email: "preview@localhost",
+    app_metadata: { provider: "local-preview" },
+    user_metadata: { full_name: "Alex" },
+    created_at: "2026-10-01T08:00:00.000Z",
+  } as User;
+}
+
 export async function getCurrentUser(): Promise<User | null> {
+  if (await isLocalPreviewActive()) {
+    return localPreviewUser();
+  }
+
   if (!isSupabaseConfigured()) {
     return null;
   }
@@ -19,6 +53,10 @@ export async function getCurrentUser(): Promise<User | null> {
 export async function getPostAuthPath(
   userId: string,
 ): Promise<typeof TODAY_PATH | typeof ONBOARDING_PATH> {
+  if (isLocalPreviewUser({ id: userId })) {
+    return TODAY_PATH;
+  }
+
   if (!isSupabaseConfigured()) {
     return ONBOARDING_PATH;
   }

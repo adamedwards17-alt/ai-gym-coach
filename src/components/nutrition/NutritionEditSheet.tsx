@@ -118,7 +118,7 @@ export function NutritionEditSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#242B33]/40 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
       <button
         type="button"
         aria-label="Close"
@@ -129,7 +129,7 @@ export function NutritionEditSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="nutrition-edit-title"
-        className="relative max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-[1.75rem] border border-border bg-background p-5 shadow-[0_24px_80px_rgb(0_0_0/0.45)]"
+        className="relative max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-[0_16px_40px_rgb(36_43_51/0.12)]"
       >
         <p
           id="nutrition-edit-title"
@@ -150,7 +150,7 @@ export function NutritionEditSheet({
               value={loggedDate}
               max={getLocalLoggedDate()}
               onChange={(event) => setLoggedDate(event.target.value)}
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -159,7 +159,7 @@ export function NutritionEditSheet({
             <input
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -168,7 +168,7 @@ export function NutritionEditSheet({
             <input
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -182,7 +182,7 @@ export function NutritionEditSheet({
                   onClick={() => applyPortions(preset)}
                   className={`min-h-10 min-w-12 rounded-full border px-3 text-[13px] ${
                     portions === preset
-                      ? "border-white/20 bg-white/10 text-foreground"
+                      ? "border-primary/40 bg-primary/10 text-foreground"
                       : "border-border text-muted hover:text-foreground"
                   }`}
                 >
@@ -210,8 +210,8 @@ export function NutritionEditSheet({
                   onClick={() => setMealType(option.id)}
                   className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${
                     mealType === option.id
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border text-foreground hover:border-white/20"
+                      ? "border-primary bg-primary text-white"
+                      : "border-border text-foreground hover:border-primary/40"
                   }`}
                 >
                   {option.label}
@@ -238,7 +238,7 @@ export function NutritionEditSheet({
                     setManualMacros(true);
                     setter(event.target.value);
                   }}
-                  className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+                  className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
                 />
               </label>
             ))}
@@ -255,7 +255,7 @@ export function NutritionEditSheet({
           <button
             type="button"
             disabled={saving}
-            className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+            className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
             onClick={handleSave}
           >
             {saving ? "Saving…" : "Save changes"}

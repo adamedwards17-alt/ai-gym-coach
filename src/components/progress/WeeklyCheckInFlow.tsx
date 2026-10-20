@@ -242,7 +242,7 @@ export function WeeklyCheckInFlow({
                   weightKg,
                 });
               }}
-              className="min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px]"
+              className="min-h-11 rounded-full bg-primary/10 px-4 py-2.5 text-[14px]"
             >
               {bundle?.latestWeightKg != null &&
               Number(weightKg) === bundle.latestWeightKg
@@ -403,7 +403,7 @@ export function WeeklyCheckInFlow({
                   }
                   className={`min-h-11 rounded-full border px-4 py-2.5 text-[14px] ${
                     selected
-                      ? "border-white/20 bg-white/8"
+                      ? "border-primary/40 bg-primary/10"
                       : "border-border text-muted"
                   }`}
                 >
@@ -424,7 +424,7 @@ export function WeeklyCheckInFlow({
               type="button"
               disabled={pending}
               onClick={() => persist(true)}
-              className="min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px]"
+              className="min-h-11 rounded-full bg-primary/10 px-4 py-2.5 text-[14px]"
             >
               {pending ? "Saving…" : "Finish check-in"}
             </button>
@@ -480,7 +480,7 @@ export function WeeklyCheckInFlow({
                   type="button"
                   disabled={pending}
                   onClick={() => respondProposal(true)}
-                  className="min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px]"
+                  className="min-h-11 rounded-full bg-primary/10 px-4 py-2.5 text-[14px]"
                 >
                   Accept changes
                 </button>
@@ -514,7 +514,7 @@ export function WeeklyCheckInFlow({
       ) : null}
 
       {error ? (
-        <p className="mt-4 text-center text-[13px] text-red-300/90">{error}</p>
+        <p className="mt-4 text-center text-[13px] text-danger-text">{error}</p>
       ) : null}
     </div>
   );
@@ -544,7 +544,7 @@ function NavButtons({
         type="button"
         disabled={pending}
         onClick={onNext}
-        className="min-h-11 flex-1 rounded-full bg-white/10 px-4 py-2.5 text-[14px]"
+        className="min-h-11 flex-1 rounded-full bg-primary/10 px-4 py-2.5 text-[14px]"
       >
         {nextLabel}
       </button>

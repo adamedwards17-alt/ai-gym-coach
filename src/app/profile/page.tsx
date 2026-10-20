@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ProfileGoalsExperience } from "@/components/profile/ProfileGoalsExperience";
+import { isLocalPreviewUser } from "@/lib/auth/local-preview";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -11,6 +12,10 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect(LOGIN_PATH);
+  }
+
+  if (isLocalPreviewUser(user)) {
+    return <ProfileGoalsExperience />;
   }
 
   const supabase = await createClient();

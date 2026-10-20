@@ -5,6 +5,8 @@ import {
   copyNutritionEntriesToDate,
   loadQuickMealContext,
 } from "@/app/actions/nutrition-quick-log";
+import { Button, buttonClassName } from "@/components/ui/Button";
+import { cardClass } from "@/components/ui/surfaces";
 import { labelForMealType, type NutritionEntryRecord } from "@/lib/nutrition";
 import {
   buildNutritionUsuals,
@@ -108,7 +110,7 @@ export function MyUsualsPanel({
   }
 
   return (
-    <section className="rounded-[1.25rem] border border-border px-4 py-4">
+    <section className={`${cardClass} px-4 py-4`}>
       <h2 className="text-[13px] font-medium uppercase tracking-[0.16em] text-muted">
         My usuals
       </h2>
@@ -119,8 +121,8 @@ export function MyUsualsPanel({
       ) : (
         <div className="mt-3 flex flex-col gap-4">
           {groups.map((group) => (
-            <div key={group.label}>
-              <p className="text-[13px] font-medium text-foreground">{group.label}</p>
+            <div key={group.label} className="rounded-xl bg-background px-2 py-2">
+              <p className="px-2 text-[13px] font-semibold text-foreground">{group.label}</p>
               <ul className="mt-1">
                 {group.items.map((item) => {
                   const checked = selected.includes(item.sourceEntryId);
@@ -128,7 +130,7 @@ export function MyUsualsPanel({
                   return (
                     <li key={item.key}>
                       <label
-                        className={`mt-1 flex items-start gap-3 rounded-xl px-2 py-2 ${checked ? "bg-foreground/5" : ""}`}
+                        className={`mt-1 flex items-start gap-3 rounded-xl px-2 py-2 ${checked ? "bg-primary/10" : ""}`}
                       >
                         <input
                           type="checkbox"
@@ -151,16 +153,15 @@ export function MyUsualsPanel({
               </ul>
             </div>
           ))}
-          <button
-            type="button"
+          <Button
             disabled={busy || selected.length === 0}
             onClick={() => {
               void addSources(selected, () => setSelected([]));
             }}
-            className="inline-flex h-11 w-fit items-center rounded-full bg-foreground px-4 text-[14px] font-medium text-background disabled:opacity-50"
+            className="w-fit"
           >
             {busy ? "Adding…" : `Add selected${selected.length ? ` (${selected.length})` : ""}`}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -170,7 +171,7 @@ export function MyUsualsPanel({
             type="button"
             disabled={busy || yesterdayChoices.length === 0}
             onClick={() => setRepeatIds(yesterdayChoices.map((entry) => entry.id))}
-            className="text-[14px] text-foreground underline-offset-4 hover:underline disabled:text-muted disabled:no-underline"
+            className={buttonClassName("secondary", "disabled:opacity-50")}
           >
             {yesterdayChoices.length === 0
               ? "Nothing new from yesterday"
@@ -184,7 +185,7 @@ export function MyUsualsPanel({
                 const checked = repeatIds.includes(entry.id);
                 return (
                   <li key={entry.id}>
-                    <label className={`mt-1 flex items-start gap-3 rounded-xl px-2 py-2 ${checked ? "bg-foreground/5" : ""}`}>
+                    <label className={`mt-1 flex items-start gap-3 rounded-xl px-2 py-2 ${checked ? "bg-primary/10" : ""}`}>
                       <input
                         type="checkbox"
                         className="mt-1"
@@ -206,24 +207,21 @@ export function MyUsualsPanel({
               })}
             </ul>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
+              <Button
                 disabled={busy || repeatIds.length === 0}
                 onClick={() => {
                   void addSources(repeatIds, () => setRepeatIds(null), true);
                 }}
-                className="inline-flex h-11 items-center rounded-full bg-foreground px-4 text-[14px] font-medium text-background disabled:opacity-50"
               >
                 {busy ? "Adding…" : "Add to this day"}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
                 disabled={busy}
                 onClick={() => setRepeatIds(null)}
-                className="inline-flex h-11 items-center rounded-full border border-border px-4 text-[14px] text-foreground"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         )}

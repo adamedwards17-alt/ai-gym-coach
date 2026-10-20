@@ -6,7 +6,8 @@ import {
   resolveDailyStepTarget,
   type DailyStepsRecord,
 } from "@/lib/activity-steps";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import { previewTrainingHub } from "@/lib/local-preview-data";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
@@ -310,6 +311,10 @@ export async function loadTrainingHub(
 ): Promise<LoadTrainingHubResult> {
   if (!isValidSessionDate(localDate)) {
     return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (await isLocalPreviewActive()) {
+    return { status: "ok", data: previewTrainingHub(localDate) };
   }
 
   if (!isSupabaseConfigured()) {

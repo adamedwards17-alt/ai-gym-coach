@@ -4,7 +4,8 @@ import {
   GeminiProvider,
   isGeminiConfigured,
 } from "@/lib/ai/providers/gemini";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import { previewNutritionEntries } from "@/lib/local-preview-data";
 import {
   ensureNutritionTargetsForUser,
   NUTRITION_ENTRY_SELECT,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/open-food-facts";
 import {
   entryDisplayTitle,
+  getLocalLoggedDate,
   isMealTypeId,
   isNutritionEntryStatus,
   isValidLoggedDate,
@@ -104,7 +106,7 @@ export async function listRecentNutritionEntries(
     beforeDate?: string | null;
   },
 ): Promise<ListNutritionResult> {
-  if (!isSupabaseConfigured()) {
+  if (!isSupabaseConfigured() && !(await isLocalPreviewActive())) {
     return {
       status: "error",
       message: "Supabase isn’t connected, so nutrition history can’t be loaded.",
@@ -117,6 +119,14 @@ export async function listRecentNutritionEntries(
   }
 
   const mealType = options?.mealType ?? null;
+  if (await isLocalPreviewActive()) {
+    const entries = previewNutritionEntries(getLocalLoggedDate())
+      .filter((entry) => (mealType ? entry.meal_type === mealType : true))
+      .filter((entry) =>
+        options?.beforeDate ? entry.logged_date < options.beforeDate : true,
+      );
+    return { status: "ok", entries: entries.slice(0, limit) };
+  }
   if (mealType != null && !isMealTypeId(mealType)) {
     return { status: "error", message: "That meal category isn’t valid." };
   }
@@ -191,6 +201,30 @@ export async function loadNutritionDay(
 ): Promise<NutritionDayResult> {
   if (!isValidLoggedDate(localDate)) {
     return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (await isLocalPreviewActive()) {
+    const entries = previewNutritionEntries(localDate);
+    const goal = {
+      daily_calories: 2400,
+      protein_g: 160,
+      carbs_g: 250,
+      fat_g: 70,
+      methodology_version: "v1",
+      calculated_at: "2026-10-01T08:00:00.000Z",
+      is_manual: false,
+    } as const;
+    return {
+      status: "ok",
+      recent: entries,
+      summary: summariseNutritionDay({
+        localDate,
+        targets: { ...goal },
+        targetsStatus: "ok",
+        targetsMessage: null,
+        entries,
+      }),
+    };
   }
 
   if (!isSupabaseConfigured()) {

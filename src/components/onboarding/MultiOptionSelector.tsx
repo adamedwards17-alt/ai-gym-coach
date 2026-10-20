@@ -39,8 +39,8 @@ export function MultiOptionSelector({
               }}
               className={`min-h-11 rounded-full border px-4 py-2.5 text-left text-[14px] transition-colors ${
                 selected
-                  ? "border-white/20 bg-white/8 text-foreground"
-                  : "border-border text-muted hover:border-white/12 hover:text-foreground"
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border text-muted hover:border-primary/30 hover:text-foreground"
               }`}
             >
               {option.label}
@@ -51,7 +51,7 @@ export function MultiOptionSelector({
       {selectedIds.length > 0 ? (
         <button
           type="button"
-          className="mt-4 inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+          className="mt-4 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
           onClick={() => onContinue(selectedIds)}
         >
           Continue

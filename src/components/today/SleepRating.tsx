@@ -28,8 +28,8 @@ export function SleepRating({ value, onChange }: SleepRatingProps) {
               onClick={() => onChange(score)}
               className={`flex h-12 min-w-0 flex-1 items-center justify-center rounded-2xl border text-[15px] font-medium transition-colors ${
                 selected
-                  ? "border-white/20 bg-white/10 text-foreground"
-                  : "border-border text-muted hover:border-white/12 hover:text-foreground"
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border text-muted hover:border-primary/30 hover:text-foreground"
               }`}
             >
               {score}

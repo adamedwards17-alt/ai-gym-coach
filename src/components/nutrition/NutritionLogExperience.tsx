@@ -33,6 +33,8 @@ import {
   type RecentFoodLogValues,
 } from "@/components/nutrition/NutritionRecentFoodEditor";
 import { PhotoEstimatePanel } from "@/components/nutrition/PhotoEstimatePanel";
+import { buttonClassName } from "@/components/ui/Button";
+import { cardClass } from "@/components/ui/surfaces";
 import {
   mealDraftFromEstimate,
   shouldOpenMealBuilder,
@@ -904,7 +906,7 @@ export function NutritionLogExperience({
         <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
           Nutrition
         </p>
-        <h1 className="mt-2 font-serif text-[1.85rem] leading-tight tracking-tight sm:text-4xl">
+        <h1 className="mt-2 text-[1.65rem] font-semibold leading-tight tracking-tight sm:text-[1.85rem]">
           {formatNutritionDate(activeDate)}
         </h1>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -923,7 +925,7 @@ export function NutritionLogExperience({
                 setReady(false);
                 setJustSaved(false);
               }}
-              className="h-9 rounded-full border border-border bg-surface/60 px-3 text-[13px] text-foreground outline-none focus:border-white/20"
+              className="h-9 rounded-full border border-border bg-surface px-3 text-[13px] text-foreground outline-none focus:border-primary"
             />
           </label>
           {viewingHistorical ? (
@@ -981,7 +983,7 @@ export function NutritionLogExperience({
           <button
             type="button"
             onClick={() => openLogging(null)}
-            className="mb-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-foreground text-[15px] font-medium text-background"
+            className="mb-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-white"
           >
             + Add meal
           </button>
@@ -1012,7 +1014,7 @@ export function NutritionLogExperience({
               onSave={(values) => void handleMealBuilderSave(values)}
             />
           ) : estimating ? (
-            <div className="rounded-[1.75rem] border border-border/80 bg-surface/35 px-4 py-8 text-center">
+            <div className="rounded-2xl border border-border/80 bg-surface/35 px-4 py-8 text-center">
               <p className="font-serif text-[1.35rem] tracking-tight">
                 Building your meal…
               </p>
@@ -1165,8 +1167,8 @@ export function NutritionLogExperience({
                         }}
                         className={`rounded-full border px-3.5 py-2 text-[13px] transition-colors ${
                           selected
-                            ? "border-foreground bg-foreground text-background"
-                            : "border-border text-foreground hover:border-white/20"
+                            ? "border-primary bg-primary text-white"
+                            : "border-border text-foreground hover:border-primary/40"
                         }`}
                       >
                         {labelForMealType(meal)}
@@ -1263,7 +1265,7 @@ export function NutritionLogExperience({
                           <button
                             type="button"
                             onClick={() => applySuggestion(entry)}
-                            className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                            className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-surface"
                           >
                             <span className="text-[14px] text-foreground">
                               {entryDisplayTitle(entry)}
@@ -1455,12 +1457,12 @@ export function NutritionLogExperience({
                         setClarificationAnswer(event.target.value)
                       }
                       placeholder="e.g. 2 eggs and 2 slices"
-                      className="h-12 w-full rounded-full border border-border bg-surface/60 px-4 text-[15px] text-foreground outline-none placeholder:text-muted focus:border-white/20"
+                      className="h-12 w-full rounded-full border border-border bg-surface px-4 text-[15px] text-foreground outline-none placeholder:text-muted focus:border-primary"
                     />
                     <div className="mt-3 flex flex-wrap items-center gap-3">
                       <button
                         type="submit"
-                        className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                        className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
                       >
                         Continue
                       </button>
@@ -1505,7 +1507,7 @@ export function NutritionLogExperience({
                     <button
                       type="button"
                       disabled={saving}
-                      className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+                      className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
                       onClick={() => void handleConfirmSave()}
                     >
                       {saving
@@ -1584,21 +1586,32 @@ export function NutritionLogExperience({
                 }
 
                 return (
-                  <div key={meal}>
-                    <h2 className="text-[15px] font-medium text-foreground">
-                      {mealSectionLabel(meal)}
-                    </h2>
+                  <div key={meal} className={`${cardClass} px-4 py-3`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-[15px] font-semibold text-foreground">
+                        {mealSectionLabel(meal)}
+                      </h2>
+                      {items.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => openLogging(meal)}
+                          className="text-[13px] font-medium text-primary"
+                        >
+                          Add
+                        </button>
+                      ) : null}
+                    </div>
                     {items.length > 0 ? (
-                      <ul className="mt-1 divide-y divide-border/60">
+                      <ul className="mt-1 divide-y divide-border">
                         {items.map((entry) => renderEntryRow(entry))}
                       </ul>
                     ) : (
                       <button
                         type="button"
                         onClick={() => openLogging(meal)}
-                        className="mt-2 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+                        className={`${buttonClassName("secondary")} mt-3`}
                       >
-                        + Add {mealSectionLabel(meal).toLowerCase()}
+                        Add {mealSectionLabel(meal).toLowerCase()}
                       </button>
                     )}
                   </div>
@@ -1606,11 +1619,11 @@ export function NutritionLogExperience({
               })}
 
               {mealGroups.other.length > 0 ? (
-                <div>
-                  <h2 className="text-[15px] font-medium text-foreground">
+                <div className={`${cardClass} px-4 py-3`}>
+                  <h2 className="text-[15px] font-semibold text-foreground">
                     Other
                   </h2>
-                  <ul className="mt-1 divide-y divide-border/60">
+                  <ul className="mt-1 divide-y divide-border">
                     {mealGroups.other.map((entry) => renderEntryRow(entry))}
                   </ul>
                 </div>
@@ -1625,8 +1638,8 @@ export function NutritionLogExperience({
           </section>
 
           {earlierEntries.length > 0 ? (
-            <section className="border-t border-border/70 pt-6">
-              <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+            <section className={`${cardClass} px-4 py-4`}>
+              <p className="text-[13px] font-semibold text-foreground">
                 Recent
               </p>
               <ul className="mt-3 flex flex-col gap-3">
@@ -1676,7 +1689,7 @@ export function NutritionLogExperience({
               type="button"
               disabled={inspirationPending}
               onClick={handleAskCoach}
-              className="mt-4 inline-flex min-h-11 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
+              className="mt-4 inline-flex min-h-11 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 disabled:opacity-60"
             >
               {inspirationPending ? "Opening…" : "Ask Coach"}
             </button>

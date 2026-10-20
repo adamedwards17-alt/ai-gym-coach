@@ -15,7 +15,7 @@ export function CoachMark({ size = "sm" }: CoachMarkProps) {
       aria-hidden
     >
       {size !== "dot" ? (
-        <span className="h-[38%] w-[38%] rounded-full bg-background/85" />
+        <span className="h-[38%] w-[38%] rounded-full bg-white" />
       ) : null}
     </span>
   );

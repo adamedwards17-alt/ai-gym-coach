@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { isLocalPreviewUser } from "@/lib/auth/local-preview";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -9,6 +10,10 @@ export async function requireAppUser(): Promise<User> {
   const user = await getCurrentUser();
   if (!user) {
     redirect(LOGIN_PATH);
+  }
+
+  if (isLocalPreviewUser(user)) {
+    return user;
   }
 
   const supabase = await createClient();

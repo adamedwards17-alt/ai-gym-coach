@@ -43,7 +43,7 @@ export function TextReply({
           value={value}
           placeholder={placeholder}
           rows={3}
-          className="w-full resize-none rounded-2xl border border-border bg-surface/60 px-4 py-3 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted focus:border-white/20"
+          className="w-full resize-none rounded-2xl border border-border bg-surface px-4 py-3 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted focus:border-primary"
           onChange={(event) => setValue(event.target.value)}
         />
       ) : (
@@ -52,14 +52,14 @@ export function TextReply({
           value={value}
           placeholder={placeholder}
           autoComplete="name"
-          className="h-12 w-full rounded-full border border-border bg-surface/60 px-4 text-[15px] text-foreground outline-none placeholder:text-muted focus:border-white/20"
+          className="h-12 w-full rounded-full border border-border bg-surface px-4 text-[15px] text-foreground outline-none placeholder:text-muted focus:border-primary"
           onChange={(event) => setValue(event.target.value)}
         />
       )}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           type="submit"
-          className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
         >
           Continue
         </button>

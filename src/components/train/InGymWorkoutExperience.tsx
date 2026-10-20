@@ -618,7 +618,7 @@ export function InGymWorkoutExperience({
           <button
             type="button"
             disabled={busy}
-            className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+            className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
             onClick={() => void handleFinish()}
           >
             {busy ? "Finishing…" : "Finish workout"}
@@ -655,7 +655,7 @@ export function InGymWorkoutExperience({
           <button
             type="button"
             disabled={busy}
-            className="inline-flex h-9 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
+            className="inline-flex h-9 items-center rounded-full bg-primary px-4 text-[13px] font-medium text-white disabled:opacity-60"
             onClick={() => void handleResume()}
           >
             Resume
@@ -676,7 +676,7 @@ export function InGymWorkoutExperience({
         <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
           {paused ? "Paused" : "In the gym"}
         </p>
-        <h1 className="mt-2 font-serif text-[1.85rem] leading-tight tracking-tight sm:text-4xl">
+        <h1 className="mt-2 text-[1.65rem] font-semibold leading-tight tracking-tight sm:text-[1.85rem]">
           {data.title}
         </h1>
         <p className="mt-2 text-[13px] text-muted">
@@ -716,7 +716,7 @@ export function InGymWorkoutExperience({
             <button
               type="button"
               disabled={busy}
-              className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+              className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
               onClick={() => void handleResume()}
             >
               Resume workout
@@ -733,8 +733,8 @@ export function InGymWorkoutExperience({
         </section>
       ) : (
         <>
-          <section className="mt-8">
-            <h2 className="font-serif text-[1.55rem] leading-tight tracking-tight">
+          <section className="mt-6 rounded-2xl border border-border bg-surface px-4 py-4">
+            <h2 className="text-[1.35rem] font-semibold leading-tight tracking-tight">
               {current.exercise.name}
             </h2>
             <p className="mt-2 text-[14px] leading-6 text-muted">
@@ -806,7 +806,7 @@ export function InGymWorkoutExperience({
             {supersetPartner ? (
               <button
                 type="button"
-                className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
                 onClick={() => goToExercise(index + 1)}
               >
                 {`Go to ${supersetPartner.exercise.name}`}
@@ -864,7 +864,7 @@ export function InGymWorkoutExperience({
               className={`inline-flex h-11 items-center rounded-full px-5 text-sm ${
                 supersetPartner
                   ? "border border-border text-foreground"
-                  : "bg-foreground font-medium text-background"
+                  : "bg-primary font-medium text-white"
               }`}
               onClick={() => goToExercise(index + 1)}
             >
@@ -873,7 +873,7 @@ export function InGymWorkoutExperience({
           ) : (
             <button
               type="button"
-              className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+              className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
               onClick={() => setShowSummary(true)}
             >
               Finish
@@ -961,8 +961,8 @@ function SetRow({
   }
 
   const border = draft.completed
-    ? "border-foreground/25 bg-white/[0.03]"
-    : "border-border/60";
+    ? "border-success/40 bg-success/10"
+    : "border-border bg-surface";
 
   return (
     <li className={`rounded-2xl border px-4 py-4 ${border}`}>
@@ -996,7 +996,7 @@ function SetRow({
               onChange={(event) =>
                 onChange({ weight: event.target.value, error: null })
               }
-              className="h-11 w-full min-w-0 rounded-full border border-border bg-surface/60 px-3 text-center text-[15px] outline-none focus:border-white/20"
+              className="h-11 w-full min-w-0 rounded-full border border-border bg-surface px-3 text-center text-[15px] outline-none focus:border-primary"
             />
             <button
               type="button"
@@ -1017,7 +1017,7 @@ function SetRow({
             onChange={(event) =>
               onChange({ reps: event.target.value, error: null })
             }
-            className="h-11 w-full min-w-0 rounded-full border border-border bg-surface/60 px-3 text-center text-[15px] outline-none focus:border-white/20"
+            className="h-11 w-full min-w-0 rounded-full border border-border bg-surface px-3 text-center text-[15px] outline-none focus:border-primary"
           />
         </label>
       </div>
@@ -1032,8 +1032,8 @@ function SetRow({
               aria-pressed={draft.rir === value}
               className={`inline-flex h-9 w-9 items-center justify-center rounded-full border text-[13px] transition-colors ${
                 draft.rir === value
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border text-foreground hover:border-white/20"
+                  ? "border-primary bg-primary text-white"
+                  : "border-border text-foreground hover:border-primary/40"
               }`}
               onClick={() =>
                 onChange({ rir: draft.rir === value ? null : value })
@@ -1068,7 +1068,7 @@ function SetRow({
               value={draft.painNotes}
               placeholder="Where / what did it feel like? (optional)"
               onChange={(event) => onChange({ painNotes: event.target.value })}
-              className="h-11 w-full rounded-full border border-border bg-surface/60 px-4 text-[14px] outline-none focus:border-white/20"
+              className="h-11 w-full rounded-full border border-border bg-surface px-4 text-[14px] outline-none focus:border-primary"
             />
           </div>
         ) : null}
@@ -1086,7 +1086,7 @@ function SetRow({
         className={`mt-4 inline-flex h-11 w-full items-center justify-center rounded-full text-sm disabled:opacity-60 ${
           draft.completed
             ? "border border-border text-foreground"
-            : "bg-foreground font-medium text-background"
+            : "bg-primary font-medium text-white"
         }`}
         onClick={onConfirm}
       >

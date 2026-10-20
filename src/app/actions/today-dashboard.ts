@@ -1,6 +1,8 @@
 "use server";
 
 import { loadTodaysCheckIn } from "@/app/actions/check-in";
+import { isLocalPreviewActive } from "@/lib/auth/session";
+import { previewTodayDashboard } from "@/lib/local-preview-data";
 import { loadNutritionDay } from "@/app/actions/nutrition";
 import { getCurrentUser } from "@/lib/auth/session";
 import type { CompletedDailyCheckIn } from "@/lib/check-ins";
@@ -155,6 +157,10 @@ export async function loadTodayDashboard(
     !isValidSessionDate(localDate)
   ) {
     return { status: "error", message: "That date isn’t valid." };
+  }
+
+  if (await isLocalPreviewActive()) {
+    return { status: "ok", data: previewTodayDashboard(localDate) };
   }
 
   if (!isSupabaseConfigured()) {

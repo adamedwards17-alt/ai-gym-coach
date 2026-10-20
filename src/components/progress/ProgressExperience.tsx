@@ -8,6 +8,14 @@ import {
 } from "@/app/actions/progress";
 import { logWeightMeasurement } from "@/app/actions/weight";
 import { WeeklyCheckInFlow } from "@/components/progress/WeeklyCheckInFlow";
+import { buttonClassName } from "@/components/ui/Button";
+import {
+  Card,
+  EmptyState,
+  MetricValue,
+  PageHeader,
+  SectionTitle,
+} from "@/components/ui/surfaces";
 import { optionLabel, primaryGoalOptions } from "@/lib/onboarding";
 
 type Panel = "dashboard" | "check-in";
@@ -113,55 +121,49 @@ export function ProgressExperience() {
 
   return (
     <div className="mx-auto w-full max-w-lg px-5 py-8 sm:px-8">
-      <div className="flex items-baseline justify-between gap-3">
-        <h1 className="font-serif text-[2rem] leading-tight tracking-tight">
-          Progress
-        </h1>
-        <Link
-          href="/profile"
-          className="text-[13px] text-muted transition-colors hover:text-foreground"
-        >
-          Profile
-        </Link>
-      </div>
-      <p className="mt-2 text-[14px] leading-6 text-muted">
-        How your plan is working over time — measurements, goal and consistency.
-      </p>
+      <PageHeader
+        eyebrow="Progress"
+        title="How the plan is going"
+        action={
+          <Link href="/profile" className="text-[13px] font-medium text-primary">
+            Profile
+          </Link>
+        }
+      />
 
       {data.weeklyCheckInDue ? (
-        <section className="mt-8 rounded-2xl border border-border/80 p-4">
-          <p className="text-[15px] leading-6 text-foreground/92">
+        <Card className="mb-4">
+          <p className="text-[15px] leading-6 text-foreground">
             Your weekly check-in is due.
           </p>
           <button
             type="button"
             onClick={() => setPanel("check-in")}
-            className="mt-3 min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px]"
+            className={`${buttonClassName()} mt-3`}
           >
             Start weekly check-in
           </button>
-        </section>
+        </Card>
       ) : (
-        <section className="mt-8">
-          <button
-            type="button"
-            onClick={() => setPanel("check-in")}
-            className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-          >
-            Review this week’s check-in
-          </button>
-        </section>
+        <button
+          type="button"
+          onClick={() => setPanel("check-in")}
+          className={`${buttonClassName("secondary")} mb-4`}
+        >
+          Review this week’s check-in
+        </button>
       )}
 
-      <section className="mt-10">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Current goal
-        </h2>
-        <p className="mt-3 text-[16px] leading-7 text-foreground/92">
+      <div className="flex flex-col gap-4">
+      <Card>
+        <SectionTitle>Current goal</SectionTitle>
+        <p className="mt-2 text-[16px] font-semibold leading-6 text-foreground">
           {goalLabel ?? "No primary goal set"}
-          {data.goalOwnWords ? ` — ${data.goalOwnWords}` : ""}
         </p>
-        <p className="mt-1 text-[13px] text-muted">
+        {data.goalOwnWords ? (
+          <p className="mt-1 text-[14px] leading-6 text-muted">{data.goalOwnWords}</p>
+        ) : null}
+        <p className="mt-2 text-[13px] text-muted">
           {data.goalStartedAt ? `Started ${formatUk(data.goalStartedAt)}` : null}
           {data.targetDate ? ` · Target ${formatUk(data.targetDate)}` : null}
           {data.targetWeightKg != null
@@ -175,27 +177,26 @@ export function ProgressExperience() {
             {data.nutritionTargets.isManual ? " (manual)" : ""}
           </p>
         ) : null}
-      </section>
+      </Card>
 
-      <section className="mt-10">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Weight
-        </h2>
-        <p className="mt-3 text-[28px] font-medium tracking-tight">
-          {data.currentWeightKg != null
-            ? `${data.currentWeightKg} kg`
-            : "No measurement yet"}
-        </p>
-        {data.weightTrendLabel ? (
-          <p className="mt-1 text-[13px] text-muted">{data.weightTrendLabel}</p>
-        ) : (
-          <p className="mt-1 text-[13px] text-muted">
-            Need a few weigh-ins for a trend.
-          </p>
-        )}
+      <Card>
+        <MetricValue
+          label="Weight"
+          value={
+            data.currentWeightKg != null
+              ? `${data.currentWeightKg} kg`
+              : "—"
+          }
+          detail={
+            data.weightTrendLabel ??
+            (data.currentWeightKg == null
+              ? "No measurement yet"
+              : "Need a few weigh-ins for a trend.")
+          }
+        />
 
         {chartPoints.length >= 2 ? (
-          <div className="mt-5 flex h-24 items-end gap-1.5">
+          <div className="mt-4 flex h-24 items-end gap-1.5 rounded-xl bg-background px-2 py-2">
             {chartPoints.map((point) => {
               const height = ((point.weight_kg - minW) / span) * 100;
               return (
@@ -205,7 +206,7 @@ export function ProgressExperience() {
                   title={`${point.measured_on}: ${point.weight_kg} kg`}
                 >
                   <div
-                    className="w-full rounded-t-sm bg-white/25"
+                    className="w-full rounded-t-sm bg-primary-bright"
                     style={{ height: `${Math.max(height, 8)}%` }}
                   />
                 </div>
@@ -214,19 +215,19 @@ export function ProgressExperience() {
           </div>
         ) : null}
 
-        <div className="mt-5 flex gap-2">
+        <div className="mt-4 flex gap-2">
           <input
             inputMode="decimal"
             value={weightInput}
             onChange={(e) => setWeightInput(e.target.value)}
             placeholder="kg"
-            className="min-h-11 flex-1 rounded-[0.85rem] border border-border bg-transparent px-3.5 py-2.5 text-[15px]"
+            className="min-h-11 flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-[15px]"
           />
           <button
             type="button"
             disabled={pending || !weightInput}
             onClick={saveWeight}
-            className="min-h-11 rounded-full border border-border px-4 py-2.5 text-[14px]"
+            className={buttonClassName()}
           >
             Log
           </button>
@@ -236,50 +237,52 @@ export function ProgressExperience() {
         ) : null}
 
         {data.measurements.length > 0 ? (
-          <ul className="mt-5 space-y-2">
+          <ul className="mt-4 divide-y divide-border">
             {data.measurements.slice(0, 8).map((m) => (
               <li
                 key={m.id}
-                className="flex justify-between text-[13px] text-muted"
+                className="flex justify-between py-2 text-[13px] text-muted"
               >
                 <span>{formatUk(m.measured_on)}</span>
-                <span className="text-foreground/85">{m.weight_kg} kg</span>
+                <span className="font-medium text-foreground">{m.weight_kg} kg</span>
               </li>
             ))}
           </ul>
         ) : null}
-      </section>
+      </Card>
 
-      <section className="mt-10">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Training this week
-        </h2>
+      <Card>
+        <SectionTitle>Training this week</SectionTitle>
         {data.weekProgress ? (
-          <p className="mt-3 text-[15px] leading-7 text-foreground/90">
-            {data.weekProgress.completedSessions} of{" "}
-            {data.weekProgress.target} sessions
-            {data.weekProgress.achieved
-              ? " · target met"
-              : " · room to catch up"}
+          <p className="mt-2 text-[20px] font-semibold tracking-tight text-foreground">
+            {data.weekProgress.completedSessions}
+            <span className="text-[14px] font-medium text-muted">
+              {" "}
+              of {data.weekProgress.target} sessions
+            </span>
           </p>
         ) : (
-          <p className="mt-3 text-[14px] text-muted">No training data yet.</p>
+          <EmptyState>No training data yet.</EmptyState>
         )}
-      </section>
+        {data.weekProgress ? (
+          <p className="mt-1 text-[13px] text-muted">
+            {data.weekProgress.achieved ? "Target met" : "Room to catch up"}
+          </p>
+        ) : null}
+      </Card>
 
       {data.latestWeeklySummary ? (
-        <section className="mt-10">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-            Latest coach note
-          </h2>
-          <p className="mt-3 text-[14px] leading-7 text-foreground/88">
+        <Card>
+          <SectionTitle>Latest coach note</SectionTitle>
+          <p className="mt-2 text-[14px] leading-6 text-foreground">
             {data.latestWeeklySummary}
           </p>
-        </section>
+        </Card>
       ) : null}
+      </div>
 
       {error ? (
-        <p className="mt-6 text-center text-[13px] text-red-300/90">{error}</p>
+        <p className="mt-6 text-center text-[13px] text-danger-text">{error}</p>
       ) : null}
     </div>
   );

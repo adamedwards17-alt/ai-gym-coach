@@ -91,7 +91,7 @@ export function PhotoEstimatePanel({
   }
 
   return (
-    <section className="rounded-[1.75rem] border border-border/80 bg-surface/35 px-4 py-5">
+    <section className="rounded-2xl border border-border/80 bg-surface/35 px-4 py-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
@@ -141,7 +141,7 @@ export function PhotoEstimatePanel({
           type="button"
           disabled={disabled || busy}
           onClick={() => inputRef.current?.click()}
-          className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
         >
           {busy ? "Estimating…" : previewUrl ? "Choose another photo" : "Take or choose photo"}
         </button>

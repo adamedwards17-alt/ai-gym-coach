@@ -1,12 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0b;
-  --foreground: #ececef;
-  --surface: #141416;
-  --muted: #8b8b93;
-  --accent: #c9c6ea;
-  --border: rgb(255 255 255 / 0.07);
+  --background: #f5f7fa;
+  --foreground: #242b33;
+  --surface: #ffffff;
+  --muted: #69727d;
+  --border: #e4e8ed;
+  /* #319DFA is the brand blue. Filled buttons and text use a darker
+     shade so white or light-grey backgrounds stay readable. */
+  --primary-bright: #319dfa;
+  --primary: #0b6bb8;
+  --success: #24c875;
+  --success-text: #0d7a46;
+  --danger: #ff6370;
+  --danger-text: #c42332;
+  --accent: var(--primary-bright);
 }
 
 @theme inline {
@@ -14,57 +22,62 @@
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-muted: var(--muted);
-  --color-accent: var(--accent);
   --color-border: var(--border);
-  --font-sans: var(--font-geist-sans);
-  --font-serif: var(--font-instrument);
+  --color-primary: var(--primary);
+  --color-primary-bright: var(--primary-bright);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-inter);
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   background-color: var(--background);
-  background-image: radial-gradient(
-    ellipse 70% 45% at 50% -10%,
-    rgb(145 150 200 / 0.12),
-    transparent 55%
-  );
-  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
 .font-serif {
-  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
 }
 
 .coach-gradient {
-  background-image: linear-gradient(
-    145deg,
-    #f2f1f8 0%,
-    #c5c1e8 45%,
-    #9aa7d4 100%
-  );
+  background-color: var(--primary);
 }
 
 .coach-text {
-  background-image: linear-gradient(
-    118deg,
-    #ffffff 0%,
-    #e4e1f5 58%,
-    #c5cde8 100%
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
+  color: var(--foreground);
+}
+
+input,
+textarea,
+select {
+  accent-color: var(--primary);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 @keyframes today-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -73,7 +86,7 @@ body {
 }
 
 .today-reveal {
-  animation: today-in 0.4s ease-out;
+  animation: today-in 0.28s ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

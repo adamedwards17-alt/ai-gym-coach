@@ -1,7 +1,8 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { LOCAL_PREVIEW_COOKIE } from "@/lib/auth/local-preview";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import { LOGIN_PATH } from "@/lib/auth/paths";
@@ -40,6 +41,9 @@ export async function signInWithGoogle() {
 }
 
 export async function signOut() {
+  const cookieStore = await cookies();
+  cookieStore.delete(LOCAL_PREVIEW_COOKIE);
+
   if (isSupabaseConfigured()) {
     const supabase = await createClient();
     await supabase.auth.signOut();

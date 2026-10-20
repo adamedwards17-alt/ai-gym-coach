@@ -14,7 +14,11 @@ import {
   GeminiProvider,
   isGeminiConfigured,
 } from "@/lib/ai/providers/gemini";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import {
+  previewConversation,
+  previewConversations,
+} from "@/lib/local-preview-data";
 import { isCoachAffirmation } from "@/lib/coach-affirmation";
 import type { CoachChatContext } from "@/lib/ai/types";
 import {
@@ -271,6 +275,9 @@ async function loadMessages(
 }
 
 export async function listCoachConversations(): Promise<ListConversationsResult> {
+  if (await isLocalPreviewActive()) {
+    return { status: "ok", conversations: previewConversations() };
+  }
   if (!isSupabaseConfigured()) {
     return {
       status: "error",
@@ -317,6 +324,13 @@ export async function listCoachConversations(): Promise<ListConversationsResult>
 }
 
 export async function createCoachConversation(): Promise<CreateConversationResult> {
+  if (await isLocalPreviewActive()) {
+    const conversation = previewConversations()[0];
+    if (!conversation) {
+      return { status: "error", message: "Preview chat couldn’t be opened." };
+    }
+    return { status: "created", conversation };
+  }
   if (!isSupabaseConfigured()) {
     return {
       status: "error",
@@ -545,6 +559,13 @@ export async function startSkipWorkoutCoachChat(input: {
 export async function loadCoachConversation(
   conversationId: string,
 ): Promise<LoadConversationResult> {
+  if (await isLocalPreviewActive()) {
+    const preview = previewConversation(conversationId);
+    if (!preview) {
+      return { status: "not_found" };
+    }
+    return { status: "ok", ...preview };
+  }
   if (!isSupabaseConfigured()) {
     return {
       status: "error",
@@ -988,6 +1009,44 @@ export async function sendCoachMessage(input: {
   }
   if (!content && hasImage) {
     content = coachImageOnlyContent();
+  }
+
+  if (await isLocalPreviewActive()) {
+    const preview = previewConversation(input.conversationId);
+    if (!preview) {
+      return { status: "error", message: "That preview chat isn’t available." };
+    }
+    const now = new Date().toISOString();
+    return {
+      status: "ok",
+      conversation: { ...preview.conversation, updated_at: now },
+      messages: [
+        ...preview.messages,
+        {
+          id: `preview-user-${now}`,
+          conversation_id: preview.conversation.id,
+          role: "user",
+          content,
+          created_at: now,
+          attachment_path: null,
+          attachment_mime_type: null,
+          attachment_kind: null,
+          attachment_url: null,
+        },
+        {
+          id: `preview-coach-${now}`,
+          conversation_id: preview.conversation.id,
+          role: "assistant",
+          content:
+            "This is the local preview, so nothing is saved and the coach model isn’t called. The conversation layout is the one to review.",
+          created_at: now,
+          attachment_path: null,
+          attachment_mime_type: null,
+          attachment_kind: null,
+          attachment_url: null,
+        },
+      ],
+    };
   }
 
   const attachmentMimeTypeRaw = (

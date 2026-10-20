@@ -510,16 +510,16 @@ export function BarcodeScanPanel({
   }
 
   const inputClass =
-    "h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20";
+    "h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary";
   const secondaryButton =
     "inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground disabled:opacity-60";
   const primaryButton =
-    "inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60";
+    "inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60";
 
   return (
     <section
       aria-label="Scan a product barcode"
-      className="rounded-[1.75rem] border border-border bg-surface/40 p-5"
+      className="rounded-2xl border border-border bg-surface/40 p-5"
     >
       {notice ? (
         <p role="status" className="mb-3 text-[13px] leading-5 text-muted">
@@ -668,7 +668,7 @@ export function BarcodeScanPanel({
                     aria-pressed={basis === option}
                     className={`h-9 rounded-full px-4 ${
                       basis === option
-                        ? "bg-foreground text-background"
+                        ? "bg-primary text-white"
                         : "text-muted"
                     }`}
                     onClick={() => setBasis(option)}

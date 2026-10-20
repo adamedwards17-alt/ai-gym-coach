@@ -1,6 +1,7 @@
 "use server";
 
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import { previewProgramme } from "@/lib/local-preview-data";
 import { getLocalLoggedDate } from "@/lib/nutrition";
 import {
   assertProgrammeIntegrity,
@@ -76,6 +77,9 @@ async function loadProgrammeSummary(
 }
 
 export async function loadActiveProgramme(): Promise<LoadProgrammeResult> {
+  if (await isLocalPreviewActive()) {
+    return { status: "ok", programme: previewProgramme() };
+  }
   if (!isSupabaseConfigured()) {
     return { status: "error", message: "Supabase isn’t connected." };
   }

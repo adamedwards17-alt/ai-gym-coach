@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { buttonClassName } from "@/components/ui/Button";
 import type { TodayActionBanner } from "@/lib/today-action-banners";
 
 type TodayActionBannersProps = {
@@ -28,7 +29,7 @@ export function TodayActionBanners({
       {banners.map((banner) => (
         <article
           key={banner.id}
-          className="relative rounded-xl border border-white/[0.1] bg-white/[0.035] px-3.5 py-3"
+          className="relative rounded-xl border border-border bg-surface px-3.5 py-3"
         >
           <div className="flex items-start gap-3 pr-7">
             <div className="min-w-0 flex-1">
@@ -45,7 +46,7 @@ export function TodayActionBanners({
                   <button
                     type="button"
                     onClick={onOpenCheckIn}
-                    className="text-[13px] text-foreground/90 underline-offset-4 hover:underline"
+                    className={buttonClassName("secondary", "mt-2 h-9 px-3 text-[13px]")}
                   >
                     {banner.actionLabel}
                   </button>
@@ -53,14 +54,14 @@ export function TodayActionBanners({
                   <button
                     type="button"
                     onClick={() => onHabitLog(banner)}
-                    className="text-[13px] text-foreground/90 underline-offset-4 hover:underline"
+                    className={buttonClassName("secondary", "mt-2 h-9 px-3 text-[13px]")}
                   >
                     {banner.actionLabel}
                   </button>
                 ) : banner.href ? (
                   <Link
                     href={banner.href}
-                    className="inline-flex text-[13px] text-foreground/90 underline-offset-4 hover:underline"
+                    className={buttonClassName("secondary", "mt-2 h-9 px-3 text-[13px]")}
                   >
                     {banner.actionLabel}
                   </Link>
@@ -72,7 +73,7 @@ export function TodayActionBanners({
             type="button"
             aria-label={`Dismiss: ${banner.title}`}
             onClick={() => onDismiss(banner.id)}
-            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-primary/5 hover:text-foreground"
           >
             <span aria-hidden className="text-[16px] leading-none">
               ×

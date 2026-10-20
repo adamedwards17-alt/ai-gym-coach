@@ -10,7 +10,7 @@ function SubmitButton({ label }: { label: string }) {
     <button
       type="submit"
       disabled={pending}
-      className="inline-flex h-12 w-full max-w-xs items-center justify-center gap-2.5 rounded-full bg-foreground px-8 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+      className="inline-flex h-12 w-full max-w-xs items-center justify-center gap-2.5 rounded-xl bg-primary px-8 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
     >
       {pending ? (
         "Connecting…"

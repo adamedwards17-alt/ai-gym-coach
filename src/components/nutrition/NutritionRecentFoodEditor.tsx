@@ -124,7 +124,7 @@ export function NutritionRecentFoodEditor({
     status;
 
   return (
-    <section className="today-reveal rounded-[1.75rem] border border-border/80 bg-surface/35 px-4 py-5">
+    <section className="today-reveal rounded-2xl border border-border/80 bg-surface/35 px-4 py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
@@ -174,7 +174,7 @@ export function NutritionRecentFoodEditor({
                   onClick={() => setQuantity(preset)}
                   className={`min-h-10 min-w-12 rounded-full border px-3 text-[13px] transition-colors ${
                     selected
-                      ? "border-white/20 bg-white/10 text-foreground"
+                      ? "border-primary/40 bg-primary/10 text-foreground"
                       : "border-border text-muted hover:text-foreground"
                   }`}
                 >
@@ -278,7 +278,7 @@ export function NutritionRecentFoodEditor({
                   }}
                   className={`min-h-10 rounded-full border px-3 text-[13px] transition-colors ${
                     selected
-                      ? "border-white/20 bg-white/10 text-foreground"
+                      ? "border-primary/40 bg-primary/10 text-foreground"
                       : "border-border text-muted hover:text-foreground"
                   }`}
                 >
@@ -305,7 +305,7 @@ export function NutritionRecentFoodEditor({
                   onClick={() => setStatus(option.id)}
                   className={`min-h-10 rounded-full border px-3 text-[13px] transition-colors ${
                     selected
-                      ? "border-white/20 bg-white/10 text-foreground"
+                      ? "border-primary/40 bg-primary/10 text-foreground"
                       : "border-border text-muted hover:text-foreground"
                   }`}
                 >
@@ -326,7 +326,7 @@ export function NutritionRecentFoodEditor({
       <button
         type="button"
         disabled={saving}
-        className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-foreground text-[15px] font-medium text-background disabled:opacity-60"
+        className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-white disabled:opacity-60"
         onClick={() => {
           const toGrams =
             baseGrams != null && quantity !== 1
@@ -429,7 +429,7 @@ function MacroLine({
           inputMode="decimal"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="h-11 flex-1 rounded-full border border-border bg-surface/60 px-4 text-[15px] text-foreground outline-none focus:border-white/20"
+          className="h-11 flex-1 rounded-full border border-border bg-surface px-4 text-[15px] text-foreground outline-none focus:border-primary"
         />
         <span className="w-10 text-[13px] text-muted">{unit}</span>
       </label>

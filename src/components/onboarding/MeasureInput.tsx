@@ -33,7 +33,7 @@ function UnitToggle({
           aria-pressed={option.id === value}
           className={`h-9 rounded-full border px-3 text-[13px] ${
             option.id === value
-              ? "border-white/20 bg-white/8 text-foreground"
+              ? "border-primary/40 bg-primary/10 text-foreground"
               : "border-border text-muted"
           }`}
           onClick={() => onChange(option.id)}
@@ -70,7 +70,7 @@ function NumberField({
         max={max}
         step={step}
         value={value ?? ""}
-        className="h-12 w-full rounded-2xl border border-border bg-surface/60 px-3 text-[15px] outline-none focus:border-white/20"
+        className="h-12 w-full rounded-2xl border border-border bg-surface px-3 text-[15px] outline-none focus:border-primary"
         onChange={(event) => onChange(Number(event.target.value))}
       />
     </label>
@@ -179,7 +179,7 @@ export function MeasureInput(props: MeasureInputProps) {
       {canContinue ? (
         <button
           type="button"
-          className="mt-5 inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+          className="mt-5 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
           onClick={() => {
             if (props.kind === "height") {
               props.onContinue(height);

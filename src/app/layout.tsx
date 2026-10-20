@@ -1,20 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Instrument_Serif } from "next/font/google";
+import { Inter } from "next/font/google";
 import { MobileNav } from "@/components/MobileNav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-});
-
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument",
-  subsets: ["latin"],
-  weight: "400",
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -28,20 +23,27 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "AI Gym Coach",
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
   },
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const signedIn = Boolean(await getCurrentUser());
+  const preview = await isLocalPreviewActive();
 
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${instrumentSerif.variable} h-full antialiased`}
+      className={`${inter.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground">
         <SiteHeader signedIn={signedIn} />
+        {preview ? (
+          <p className="border-b border-border bg-primary/10 px-4 py-2 text-center text-[13px] text-foreground">
+            Local preview with sample data. Nothing is saved. Sign out to leave
+            it.
+          </p>
+        ) : null}
         <main
           className={
             signedIn

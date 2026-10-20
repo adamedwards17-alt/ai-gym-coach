@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@/components/ui/Button";
+
 type NutritionConfirmDialogProps = {
   title: string;
   body: string;
@@ -18,7 +20,7 @@ export function NutritionConfirmDialog({
   onConfirm,
 }: NutritionConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#242B33]/40 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
       <button
         type="button"
         aria-label="Close"
@@ -30,7 +32,7 @@ export function NutritionConfirmDialog({
         aria-modal="true"
         aria-labelledby="nutrition-confirm-title"
         aria-describedby="nutrition-confirm-body"
-        className="relative w-full max-w-sm rounded-[1.75rem] border border-border bg-background p-5 shadow-[0_24px_80px_rgb(0_0_0/0.45)]"
+        className="relative w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-[0_16px_40px_rgb(36_43_51/0.12)]"
       >
         <p
           id="nutrition-confirm-title"
@@ -45,22 +47,12 @@ export function NutritionConfirmDialog({
           {body}
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={pending}
-            className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
-            onClick={onConfirm}
-          >
+          <Button variant="danger" disabled={pending} onClick={onConfirm}>
             {pending ? "Removing…" : confirmLabel}
-          </button>
-          <button
-            type="button"
-            disabled={pending}
-            className="inline-flex h-11 items-center rounded-full border border-border px-5 text-sm text-foreground disabled:opacity-60"
-            onClick={onCancel}
-          >
+          </Button>
+          <Button variant="secondary" disabled={pending} onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
         </div>
       </div>
     </div>

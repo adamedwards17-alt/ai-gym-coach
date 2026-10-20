@@ -17,7 +17,7 @@ function IconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-white/[0.06] hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-primary/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       {children}
     </button>

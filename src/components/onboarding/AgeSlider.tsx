@@ -28,7 +28,7 @@ export function AgeSlider({ value, onContinue }: AgeSliderProps) {
       </div>
       <button
         type="button"
-        className="mt-5 inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+        className="mt-5 inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
         onClick={() => onContinue(age)}
       >
         Continue

@@ -263,7 +263,7 @@ export function NotificationSettings() {
             onClick={() => {
               void enableNotifications();
             }}
-            className="mt-3 inline-flex h-11 items-center rounded-full bg-foreground px-4 text-[14px] font-medium text-background disabled:opacity-50"
+            className="mt-3 inline-flex h-11 items-center rounded-full bg-primary px-4 text-[14px] font-medium text-white disabled:opacity-50"
           >
             {busy ? "Turning on…" : "Enable notifications"}
           </button>
@@ -277,7 +277,7 @@ export function NotificationSettings() {
             onClick={() => {
               void sendTest();
             }}
-            className="inline-flex h-11 items-center rounded-full bg-foreground px-4 text-[14px] font-medium text-background disabled:opacity-50"
+            className="inline-flex h-11 items-center rounded-full bg-primary px-4 text-[14px] font-medium text-white disabled:opacity-50"
           >
             {busy ? "Sending…" : "Send test notification"}
           </button>

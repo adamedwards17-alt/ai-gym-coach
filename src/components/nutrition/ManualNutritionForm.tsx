@@ -110,10 +110,10 @@ export function ManualNutritionForm({
   }
 
   const inputClass =
-    "h-11 w-full rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20";
+    "h-11 w-full rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary";
 
   return (
-    <section className="rounded-[1.75rem] border border-border/80 bg-surface/35 px-4 py-5">
+    <section className="rounded-2xl border border-border/80 bg-surface/35 px-4 py-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
@@ -208,7 +208,7 @@ export function ManualNutritionForm({
                   onClick={() => setMealType(option.id as MealTypeId)}
                   className={`rounded-full border px-3 py-2 text-[13px] ${
                     mealType === option.id
-                      ? "border-foreground bg-foreground text-background"
+                      ? "border-primary bg-primary text-white"
                       : "border-border text-foreground"
                   }`}
                 >
@@ -231,7 +231,7 @@ export function ManualNutritionForm({
                 onClick={() => setStatus(option.id)}
                 className={`rounded-full border px-3 py-2 text-[13px] ${
                   status === option.id
-                    ? "border-foreground bg-foreground text-background"
+                    ? "border-primary bg-primary text-white"
                     : "border-border text-foreground"
                 }`}
               >
@@ -262,7 +262,7 @@ export function ManualNutritionForm({
         type="button"
         disabled={saving}
         onClick={handleSubmit}
-        className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-foreground text-[15px] font-medium text-background disabled:opacity-60"
+        className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-white disabled:opacity-60"
       >
         {saving ? "Saving…" : "Save food"}
       </button>

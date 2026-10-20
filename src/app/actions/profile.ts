@@ -1,6 +1,7 @@
 "use server";
 
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import { previewProfile } from "@/lib/local-preview-data";
 import {
   isCommuteSituationId,
   legacyCycleFieldsFromPattern,
@@ -270,6 +271,9 @@ async function loadProfileData(
 }
 
 export async function loadProfileGoals(): Promise<LoadProfileResult> {
+  if (await isLocalPreviewActive()) {
+    return { status: "ok", data: previewProfile() };
+  }
   if (!isSupabaseConfigured()) {
     return { status: "error", message: "Supabase isn’t connected." };
   }

@@ -29,7 +29,7 @@ import {
 } from "@/lib/onboarding";
 
 const inputClass =
-  "w-full min-h-11 rounded-[0.85rem] border border-border bg-transparent px-3.5 py-2.5 text-[15px] text-foreground outline-none focus:border-white/20";
+  "w-full min-h-11 rounded-[0.85rem] border border-border bg-transparent px-3.5 py-2.5 text-[15px] text-foreground outline-none focus:border-primary";
 
 type GoalWarning = {
   shouldWarn: boolean;
@@ -337,7 +337,7 @@ export function ProfileGoalsExperience() {
                   confirmGoalChange: true,
                 })
               }
-              className="min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px] text-foreground"
+              className="min-h-11 rounded-full bg-primary/10 px-4 py-2.5 text-[14px] text-foreground"
             >
               Continue changing my goal
             </button>
@@ -355,7 +355,7 @@ export function ProfileGoalsExperience() {
               type="button"
               disabled={pending}
               onClick={() => switchToAutomatic(true)}
-              className="min-h-11 rounded-full bg-white/10 px-4 py-2.5 text-[14px]"
+              className="min-h-11 rounded-full bg-primary/10 px-4 py-2.5 text-[14px]"
             >
               Apply automatic targets
             </button>
@@ -728,7 +728,7 @@ export function ProfileGoalsExperience() {
                     }
                     className={`min-h-11 rounded-full border px-4 py-2.5 text-[14px] ${
                       selected
-                        ? "border-white/20 bg-white/8 text-foreground"
+                        ? "border-primary/40 bg-primary/10 text-foreground"
                         : "border-border text-muted"
                     }`}
                   >
@@ -762,7 +762,7 @@ export function ProfileGoalsExperience() {
           type="button"
           disabled={pending}
           onClick={() => save(buildInput())}
-          className="min-h-12 rounded-full bg-white/12 px-5 py-3 text-[15px] font-medium text-foreground disabled:opacity-60"
+          className="min-h-12 rounded-xl bg-primary px-5 py-3 text-[15px] font-semibold text-white disabled:opacity-50"
         >
           {pending ? "Saving…" : "Save profile"}
         </button>
@@ -770,7 +770,7 @@ export function ProfileGoalsExperience() {
           <p className="text-center text-[13px] text-muted">{savedNote}</p>
         ) : null}
         {error ? (
-          <p className="text-center text-[13px] text-red-300/90">{error}</p>
+          <p className="text-center text-[13px] text-danger-text">{error}</p>
         ) : null}
       </div>
     </div>

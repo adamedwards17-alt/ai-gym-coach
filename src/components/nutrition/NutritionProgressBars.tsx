@@ -16,18 +16,18 @@ type NutritionProgressBarsProps = {
 };
 
 const FILL_CLASS: Record<ProgressTone, string> = {
-  normal: "bg-[#c9c6ea]/80",
-  behind: "bg-[#c9a96a]/85",
-  over: "bg-[#d9605b]",
+  normal: "bg-primary-bright",
+  behind: "bg-[#c9892d]",
+  over: "bg-danger",
 };
 
 const STATUS_TEXT_CLASS: Record<ProgressTone, string> = {
   normal: "text-muted",
-  behind: "text-[#d2b57a]",
-  over: "text-[#e5736f]",
+  behind: "text-[#8a5a12]",
+  over: "text-danger-text",
 };
 
-const TRACK = "bg-white/[0.07]";
+const TRACK = "bg-border";
 
 function toneText(tone: ProgressTone): string | null {
   if (tone === "over") {
@@ -108,7 +108,7 @@ function ListRow({ item, compact }: { item: MacroProgress; compact: boolean }) {
 
 function CompactMacroCell({ item }: { item: MacroProgress }) {
   return (
-    <div className="min-w-0 rounded-xl border border-white/[0.06] px-2.5 py-2.5 sm:px-3">
+    <div className="min-w-0 rounded-xl border border-border bg-surface px-2.5 py-2.5 sm:px-3">
       <p className="truncate text-[11px] text-muted">{item.label}</p>
       <p className="mt-0.5 truncate text-[13px] text-foreground">
         {item.consumed.toLocaleString()}
@@ -139,7 +139,7 @@ function CompactNutritionLayout({ progress }: { progress: MacroProgress[] }) {
 
   return (
     <div aria-label="Nutrition progress" className="flex flex-col gap-4">
-      <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-transparent px-4 py-4">
+      <div className="rounded-2xl border border-border bg-surface px-4 py-4">
         <div className="flex items-end justify-between gap-3">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">

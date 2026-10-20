@@ -59,7 +59,7 @@ export function PlanProposalCard({
         <button
           type="button"
           disabled={busy}
-          className="inline-flex h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
+          className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-[13px] font-medium text-white disabled:opacity-60"
           onClick={() => {
             void (async () => {
               setBusy(true);

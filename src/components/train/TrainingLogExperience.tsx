@@ -192,7 +192,7 @@ export function TrainingLogExperience({
           <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
             Train
           </p>
-          <h1 className="mt-3 font-serif text-[2.15rem] leading-tight tracking-tight sm:text-5xl">
+          <h1 className="mt-3 text-[1.75rem] font-semibold leading-tight tracking-tight sm:text-[2rem]">
             Log a session
           </h1>
           <p className="mt-3 text-[16px] leading-7 text-muted">
@@ -461,12 +461,12 @@ export function TrainingLogExperience({
                   value={caloriesInput}
                   onChange={(event) => setCaloriesInput(event.target.value)}
                   placeholder="e.g. 420"
-                  className="h-12 w-full rounded-full border border-border bg-surface/60 px-4 text-[15px] outline-none placeholder:text-muted focus:border-white/20"
+                  className="h-12 w-full rounded-full border border-border bg-surface px-4 text-[15px] outline-none placeholder:text-muted focus:border-primary"
                 />
                 <div className="mt-3 flex flex-wrap gap-3">
                   <button
                     type="submit"
-                    className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                    className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
                   >
                     Continue
                   </button>
@@ -502,7 +502,7 @@ export function TrainingLogExperience({
                 onChange={(event) => setNotes(event.target.value)}
                 rows={2}
                 placeholder="How did it feel?"
-                className="rounded-2xl border border-border bg-surface/60 px-4 py-3 text-[14px] outline-none"
+                className="rounded-2xl border border-border bg-surface px-4 py-3 text-[14px] outline-none"
               />
             </label>
             {plannedDurationMinutes != null &&
@@ -520,7 +520,7 @@ export function TrainingLogExperience({
             <button
               type="button"
               disabled={saving}
-              className="inline-flex h-11 w-fit items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+              className="inline-flex h-11 w-fit items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
               onClick={() => void handleSave()}
             >
               {saving

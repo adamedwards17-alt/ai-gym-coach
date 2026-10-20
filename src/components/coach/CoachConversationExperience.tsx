@@ -14,6 +14,9 @@ import {
 import { listPendingTrainingProposals } from "@/app/actions/training";
 import { CoachComposer } from "@/components/coach/CoachComposer";
 import { CoachPlanUpdateBundle } from "@/components/coach/CoachPlanUpdateBundle";
+import { CoachRecommendationList } from "@/components/coach/CoachRecommendationList";
+import { buttonClassName } from "@/components/ui/Button";
+import { CoachMark } from "@/components/CoachMark";
 import { CoachMessage } from "@/components/today/CoachMessage";
 import {
   getLocalCoachDate,
@@ -23,6 +26,7 @@ import {
 import { coachImageOnlyContent } from "@/lib/coach-attachments";
 import type { CoachChangeProposalRecord } from "@/lib/coach-change-proposals";
 import { getCoachLoadingMessage } from "@/lib/coach-loading";
+import { splitCoachRecommendations } from "@/lib/coach-recommendations";
 import {
   hasSentMealInspirationQuickReply,
   isMealInspirationConversation,
@@ -279,7 +283,7 @@ export function CoachConversationExperience({
           >
             ← Coach
           </Link>
-          <h1 className="mt-3 truncate font-serif text-[1.75rem] leading-tight tracking-tight sm:text-4xl">
+          <h1 className="mt-3 truncate text-[1.65rem] font-semibold leading-tight tracking-tight sm:text-[1.85rem]">
             {conversation.title?.trim() || "New chat"}
           </h1>
         </div>
@@ -295,17 +299,36 @@ export function CoachConversationExperience({
 
       <div className="flex flex-1 flex-col gap-6">
         {messages.length === 0 && !pending ? (
-          <CoachMessage>
-            What’s on your mind — training, food, recovery, or something else?
-          </CoachMessage>
+          <div className="flex flex-col gap-3">
+            <CoachMessage>
+              What’s on your mind — training, food, recovery, or something else?
+            </CoachMessage>
+            <div className="flex flex-wrap gap-2 pl-10">
+              {["What should I train today?", "How is my protein looking?", "I need dinner ideas"].map(
+                (prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      void sendContent({ content: prompt });
+                    }}
+                    className={buttonClassName("secondary", "h-auto min-h-11 py-2 text-left")}
+                  >
+                    {prompt}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
         ) : null}
 
         {messages.map((message) =>
           message.role === "assistant" ? (
-            <CoachMessage key={message.id}>{message.content}</CoachMessage>
+            <AssistantTurn key={message.id} content={message.content} />
           ) : (
             <div key={message.id} className="flex justify-end pl-10">
-              <div className="max-w-[90%] rounded-3xl rounded-br-md bg-white/[0.07] px-4 py-3 text-[15px] leading-7 text-foreground">
+              <div className="max-w-[90%] rounded-2xl rounded-br-md border border-primary/20 bg-primary/10 px-4 py-3 text-[15px] leading-6 text-foreground">
                 {message.attachment_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -369,7 +392,7 @@ export function CoachConversationExperience({
               onClick={() => {
                 void sendContent({ content: reply });
               }}
-              className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-[13px] text-foreground transition-colors hover:border-white/16 hover:bg-white/[0.04] disabled:opacity-60"
+              className={buttonClassName("secondary")}
             >
               {reply}
             </button>
@@ -385,6 +408,21 @@ export function CoachConversationExperience({
         onSend={sendContent}
         onTranscribe={transcribeCoachAudio}
       />
+    </div>
+  );
+}
+
+function AssistantTurn({ content }: { content: string }) {
+  const recommendations = splitCoachRecommendations(content);
+  if (!recommendations) {
+    return <CoachMessage>{content}</CoachMessage>;
+  }
+  return (
+    <div className="today-reveal flex scroll-mt-8 gap-3">
+      <CoachMark size="sm" />
+      <div className="min-w-0 flex-1">
+        <CoachRecommendationList list={recommendations} />
+      </div>
     </div>
   );
 }

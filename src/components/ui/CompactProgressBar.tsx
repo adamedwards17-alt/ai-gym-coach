@@ -9,15 +9,15 @@ type CompactProgressBarProps = {
 };
 
 const FILL_CLASS = {
-  normal: "bg-[#c9c6ea]/75",
-  achieved: "bg-[#7dcea0]/80",
-  over: "bg-[#d9605b]",
+  normal: "bg-primary-bright",
+  achieved: "bg-success",
+  over: "bg-danger",
 } as const;
 
 const STATUS_CLASS = {
   normal: "text-muted",
-  achieved: "text-[#9fd4b3]",
-  over: "text-[#e5736f]",
+  achieved: "text-success-text",
+  over: "text-danger-text",
 } as const;
 
 export function CompactProgressBar({
@@ -53,7 +53,7 @@ export function CompactProgressBar({
         aria-valuemax={100}
         aria-valuenow={Math.min(fillPercent, 100)}
         aria-valuetext={`${valueText}${statusLabel ? `, ${statusLabel}` : ""}`}
-        className={`mt-1.5 w-full overflow-hidden rounded-full bg-white/[0.06] ${
+        className={`mt-1.5 w-full overflow-hidden rounded-full bg-border ${
           compact ? "h-1" : "h-1.5"
         }`}
       >

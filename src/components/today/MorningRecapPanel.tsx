@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { buttonClassName } from "@/components/ui/Button";
 import type { MorningRecap } from "@/lib/morning-recap";
 import { morningRecapStorageKey } from "@/lib/morning-recap";
 
@@ -45,7 +46,7 @@ export function MorningRecapPanel({
   }
 
   return (
-    <section className="today-reveal mb-8 rounded-[1.75rem] border border-border/80 bg-surface/30 px-4 py-5">
+    <section className="today-reveal mb-4 rounded-2xl border border-border bg-surface px-4 py-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
@@ -85,7 +86,7 @@ export function MorningRecapPanel({
             <Link
               key={action.id}
               href={action.href}
-              className="text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+              className={buttonClassName("secondary")}
             >
               {action.label}
             </Link>
@@ -97,7 +98,7 @@ export function MorningRecapPanel({
         <button
           type="button"
           onClick={onStartCheckIn}
-          className="mt-5 inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+          className={`${buttonClassName()} mt-4`}
         >
           Quick check-in
         </button>

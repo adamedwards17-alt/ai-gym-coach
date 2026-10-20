@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { NutritionLogExperience } from "@/components/nutrition/NutritionLogExperience";
+import { isLocalPreviewUser } from "@/lib/auth/local-preview";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isMealTypeId, isValidLoggedDate } from "@/lib/nutrition";
@@ -15,6 +16,21 @@ export default async function NutritionPage({
   const user = await getCurrentUser();
   if (!user) {
     redirect(LOGIN_PATH);
+  }
+
+  if (isLocalPreviewUser(user)) {
+    const params = await searchParams;
+    const initialMealType = isMealTypeId(params.meal) ? params.meal : null;
+    const initialDate =
+      typeof params.date === "string" && isValidLoggedDate(params.date)
+        ? params.date
+        : null;
+    return (
+      <NutritionLogExperience
+        initialMealType={initialMealType}
+        initialDate={initialDate}
+      />
+    );
   }
 
   const supabase = await createClient();

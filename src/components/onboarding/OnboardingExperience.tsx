@@ -135,7 +135,7 @@ export function OnboardingExperience({
         <h1 className="mt-3 font-serif text-[2.15rem] leading-tight tracking-tight sm:text-4xl">
           Let’s get you set up
         </h1>
-        <div className="mt-6 h-[3px] overflow-hidden rounded-full bg-white/8">
+        <div className="mt-6 h-[3px] overflow-hidden rounded-full bg-primary/10">
           <div
             className="h-full rounded-full bg-accent/80 transition-[width] duration-300"
             style={{ width: `${progress}%` }}
@@ -190,7 +190,7 @@ export function OnboardingExperience({
                 <button
                   type="button"
                   disabled={saving}
-                  className="inline-flex h-11 w-fit items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+                  className="inline-flex h-11 w-fit items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
                   onClick={() => void finish()}
                 >
                   {saving

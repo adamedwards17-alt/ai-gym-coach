@@ -43,13 +43,13 @@ export function OptionSelector<T extends string | number>({
               hasDescriptions
                 ? `min-h-11 rounded-2xl border px-4 py-3 text-left transition-colors ${
                     selected
-                      ? "border-white/20 bg-white/8 text-foreground"
-                      : "border-border bg-transparent text-muted hover:border-white/12 hover:text-foreground"
+                      ? "border-primary/40 bg-primary/10 text-foreground"
+                      : "border-border bg-transparent text-muted hover:border-primary/30 hover:text-foreground"
                   }`
                 : `min-h-11 rounded-full border px-4 py-2.5 text-left text-[14px] transition-colors ${
                     selected
-                      ? "border-white/20 bg-white/8 text-foreground"
-                      : "border-border bg-transparent text-muted hover:border-white/12 hover:text-foreground"
+                      ? "border-primary/40 bg-primary/10 text-foreground"
+                      : "border-border bg-transparent text-muted hover:border-primary/30 hover:text-foreground"
                   }`
             }
           >

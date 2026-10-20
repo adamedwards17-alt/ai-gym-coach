@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { TrainingHubExperience } from "@/components/train/TrainingHubExperience";
+import { isLocalPreviewUser } from "@/lib/auth/local-preview";
 import { LOGIN_PATH, ONBOARDING_PATH } from "@/lib/auth/paths";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
@@ -10,6 +11,10 @@ export default async function TrainPage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect(LOGIN_PATH);
+  }
+
+  if (isLocalPreviewUser(user)) {
+    return <TrainingHubExperience />;
   }
 
   const supabase = await createClient();

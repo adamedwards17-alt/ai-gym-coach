@@ -511,7 +511,7 @@ export function CoachComposer({
   return (
     <div className="sticky bottom-20 mt-8 sm:bottom-6">
       {attachment ? (
-        <div className="mb-3 flex items-start gap-3 rounded-2xl border border-border/80 bg-surface/60 p-3">
+        <div className="mb-3 flex items-start gap-3 rounded-2xl border border-border/80 bg-surface p-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={attachment.previewUrl}
@@ -537,7 +537,7 @@ export function CoachComposer({
       ) : null}
 
       {pickerOpen ? (
-        <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-border/80 bg-surface/60 p-3">
+        <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-border/80 bg-surface p-3">
           <p className="text-[12px] text-muted">Add a photo</p>
           <div className="flex flex-wrap gap-2">
             <button
@@ -570,7 +570,7 @@ export function CoachComposer({
       ) : null}
 
       {recording ? (
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface/60 px-4 py-3">
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface px-4 py-3">
           <div className="min-w-0">
             <p className="text-[13px] text-foreground">
               {statusLine}
@@ -600,7 +600,7 @@ export function CoachComposer({
               type="button"
               aria-label="Stop recording"
               onClick={stopRecording}
-              className="inline-flex h-10 items-center gap-2 rounded-full bg-foreground px-4 text-[13px] font-medium text-background"
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-[13px] font-medium text-white"
             >
               <StopIcon />
               Done
@@ -654,14 +654,14 @@ export function CoachComposer({
             void handleFile(file);
           }}
         />
-        <div className="flex items-end gap-1 rounded-[1.75rem] border border-border bg-surface/80 p-1.5 shadow-[0_0_0_1px_rgb(255_255_255/0.02)] backdrop-blur">
+        <div className="flex items-end gap-1 rounded-2xl border border-border bg-surface p-1.5 shadow-none backdrop-blur">
           <button
             type="button"
             aria-label="Attach a photo"
             title="Attach a photo"
             disabled={busy}
             onClick={() => setPickerOpen((open) => !open)}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-white/[0.06] hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 disabled:opacity-40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-primary/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-40"
           >
             <CameraIcon />
           </button>
@@ -692,10 +692,10 @@ export function CoachComposer({
                 void startRecording();
               }
             }}
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 disabled:opacity-40 ${
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-40 ${
               recording
-                ? "bg-foreground text-background"
-                : "text-foreground/85 hover:bg-white/[0.06] hover:text-foreground"
+                ? "bg-primary text-white"
+                : "text-foreground/85 hover:bg-primary/5 hover:text-foreground"
             }`}
           >
             <MicIcon />
@@ -703,7 +703,7 @@ export function CoachComposer({
           <button
             type="submit"
             disabled={!canSend}
-            className="inline-flex h-11 shrink-0 items-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:opacity-40"
+            className="inline-flex h-11 shrink-0 items-center rounded-full bg-primary px-4 text-sm font-medium text-white disabled:opacity-40"
           >
             {uploading ? "…" : "Send"}
           </button>

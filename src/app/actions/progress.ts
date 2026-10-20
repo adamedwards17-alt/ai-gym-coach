@@ -1,6 +1,7 @@
 "use server";
 
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import { previewProgress } from "@/lib/local-preview-data";
 import { getLocalLoggedDate } from "@/lib/nutrition";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -45,6 +46,9 @@ export async function loadProgressDashboard(): Promise<
   | { status: "ok"; data: ProgressDashboardData }
   | { status: "error"; message: string }
 > {
+  if (await isLocalPreviewActive()) {
+    return { status: "ok", data: previewProgress(getLocalLoggedDate()) };
+  }
   if (!isSupabaseConfigured()) {
     return { status: "error", message: "Supabase isn’t connected." };
   }

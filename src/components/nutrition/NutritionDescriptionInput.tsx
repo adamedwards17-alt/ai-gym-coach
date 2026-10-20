@@ -88,7 +88,7 @@ export function NutritionDescriptionInput({
         onSubmit(trimmed);
       }}
     >
-      <div className="flex h-12 items-center gap-1 rounded-full border border-border bg-surface/60 pl-4 pr-1.5 focus-within:border-white/20">
+      <div className="flex h-12 items-center gap-1 rounded-full border border-border bg-surface pl-4 pr-1.5 focus-within:border-primary">
         <input
           aria-label={label}
           value={value}
@@ -130,7 +130,7 @@ export function NutritionDescriptionInput({
 
       {enableSuggestions && open && suggestions.length > 0 ? (
         <ul
-          className="absolute left-0 right-0 top-[3.35rem] z-20 overflow-hidden rounded-2xl border border-border/80 bg-background/95 shadow-[0_12px_40px_rgb(0_0_0/0.35)] backdrop-blur"
+          className="absolute left-0 right-0 top-[3.35rem] z-20 overflow-hidden rounded-2xl border border-border/80 bg-background/95 shadow-[0_8px_24px_rgb(36_43_51/0.08)] backdrop-blur"
           role="listbox"
           aria-label="Recent foods"
         >
@@ -144,7 +144,7 @@ export function NutritionDescriptionInput({
               <li key={entry.id}>
                 <button
                   type="button"
-                  className="flex w-full flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
+                  className="flex w-full flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:bg-primary/5"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -171,7 +171,7 @@ export function NutritionDescriptionInput({
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           type="submit"
-          className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+          className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white"
         >
           Continue
         </button>

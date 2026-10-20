@@ -1,6 +1,7 @@
 "use server";
 
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
+import { previewNutritionEntries } from "@/lib/local-preview-data";
 import {
   NUTRITION_ENTRY_SELECT,
   toNutritionEntryRecord,
@@ -31,6 +32,18 @@ export async function loadQuickMealContext(loggedDate: string): Promise<
 > {
   if (!isValidLoggedDate(loggedDate)) {
     return { status: "error", message: "That date isn’t valid." };
+  }
+  if (await isLocalPreviewActive()) {
+    const history = previewNutritionEntries(loggedDate);
+    const yesterdayDate = yesterdayLoggedDate(loggedDate);
+    return {
+      status: "ok",
+      context: {
+        history,
+        yesterday: history.filter((entry) => entry.logged_date === yesterdayDate),
+        yesterdayDate,
+      },
+    };
   }
   if (!isSupabaseConfigured()) {
     return { status: "error", message: "Supabase isn’t connected." };

@@ -28,7 +28,7 @@ export function MobileNav({ signedIn }: { signedIn: boolean }) {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/92 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom,0px)] md:hidden"
       aria-label="App"
     >
       <ul className="mx-auto grid h-[4.25rem] max-w-lg grid-cols-5 px-1">
@@ -43,15 +43,15 @@ export function MobileNav({ signedIn }: { signedIn: boolean }) {
               <Link
                 href={item.href}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex h-full min-h-[4.25rem] flex-col items-center justify-center gap-1 rounded-xl px-1 transition-colors ${
+                className={`flex h-full min-h-11 flex-col items-center justify-center gap-1 border-t-2 px-1 transition-colors ${
                   isActive
-                    ? "text-foreground"
-                    : "text-muted active:text-foreground/80"
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted active:text-foreground"
                 }`}
               >
                 <span
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
-                    isActive ? "bg-white/[0.1]" : "bg-transparent"
+                    isActive ? "bg-primary/10" : "bg-transparent"
                   }`}
                 >
                   {Icon ? (

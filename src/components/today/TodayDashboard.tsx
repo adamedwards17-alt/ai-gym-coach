@@ -16,6 +16,14 @@ import {
   type TodayDashboardData,
 } from "@/app/actions/today-dashboard";
 import { NutritionProgressBars } from "@/components/nutrition/NutritionProgressBars";
+import { buttonClassName } from "@/components/ui/Button";
+import {
+  Card,
+  EmptyState,
+  PageHeader,
+  SectionTitle,
+  StatusBadge,
+} from "@/components/ui/surfaces";
 import { MorningCheckIn } from "@/components/today/MorningCheckIn";
 import { MorningRecapPanel } from "@/components/today/MorningRecapPanel";
 import { TodayActionBanners } from "@/components/today/TodayActionBanners";
@@ -76,56 +84,65 @@ function NutritionSection({
 
   if (summary.targetsStatus !== "ok" || !summary.targets) {
     return (
-      <section className="today-reveal">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-            Nutrition
-          </h2>
-          <Link
-            href="/nutrition"
-            className="text-[13px] text-muted transition-colors hover:text-foreground"
-          >
-            Open Nutrition
-          </Link>
-        </div>
-        <p className="mt-4 text-[15px] leading-7 text-muted">
+      <Card className="today-reveal">
+        <SectionTitle
+          action={
+            <Link href="/nutrition" className="text-[13px] text-primary">
+              Open
+            </Link>
+          }
+        >
+          Nutrition
+        </SectionTitle>
+        <EmptyState>
           {summary.targetsMessage ??
             "Complete your profile to unlock calorie and macro targets."}
-        </p>
-        <Link
-          href="/nutrition"
-          className="mt-4 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-        >
-          + Add food
+        </EmptyState>
+        <Link href="/nutrition" className={`${buttonClassName()} mt-4`}>
+          Add food
         </Link>
-      </section>
+      </Card>
     );
   }
 
+  const foods = [...summary.eatenEntries, ...summary.plannedEntries].slice(0, 4);
+
   return (
-    <section className="today-reveal">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Nutrition
-        </h2>
-        <Link
-          href="/nutrition"
-          className="text-[13px] text-muted transition-colors hover:text-foreground"
-        >
-          Full day
-        </Link>
-      </div>
-
-      <div className="mt-5">
-        <NutritionProgressBars summary={summary} now={now} compact />
-      </div>
-
-      <Link
-        href="/nutrition"
-        className="mt-5 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+    <section className="today-reveal flex flex-col gap-3">
+      <SectionTitle
+        action={
+          <Link href="/nutrition" className="text-[13px] font-medium text-primary">
+            Full day
+          </Link>
+        }
       >
-        + Add food
-      </Link>
+        Nutrition
+      </SectionTitle>
+      <NutritionProgressBars summary={summary} now={now} compact />
+      <Card>
+        {foods.length > 0 ? (
+          <ul className="divide-y divide-border">
+            {foods.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex items-center justify-between gap-3 py-2 text-[14px] text-foreground"
+              >
+                <span className="min-w-0 truncate">{entryDisplayTitle(entry)}</span>
+                {entry.status === "planned" ? (
+                  <StatusBadge>Planned</StatusBadge>
+                ) : (
+                  <StatusBadge tone="done">Eaten</StatusBadge>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState>Nothing logged yet.</EmptyState>
+        )}
+        <Link href="/nutrition" className={`${buttonClassName()} mt-3`}>
+          Add food
+        </Link>
+      </Card>
     </section>
   );
 }
@@ -134,53 +151,52 @@ function TrainingSection({ data }: { data: TodayDashboardData }) {
   const entries = data.todayPlanEntries;
 
   return (
-    <section className="today-reveal">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Training
-        </h2>
-        <Link
-          href="/train"
-          className="text-[13px] text-muted transition-colors hover:text-foreground"
-        >
-          Open Train
-        </Link>
-      </div>
+    <Card className="today-reveal">
+      <SectionTitle
+        action={
+          <Link href="/train" className="text-[13px] font-medium text-primary">
+            Open Train
+          </Link>
+        }
+      >
+        Training
+      </SectionTitle>
       {entries.length === 0 ? (
-        <p className="mt-3 text-[14px] leading-6 text-muted">
-          No session on the plan today.
-        </p>
+        <EmptyState>No session on the plan today.</EmptyState>
       ) : (
-        <ul className="mt-3 space-y-2">
-          {entries.map((entry) => (
-            <li key={entry.id} className="text-[14px] leading-6 text-foreground/92">
-              {entry.training_type === "rest"
-                ? "Rest day"
-                : `${labelForTrainingType(entry.training_type)} · ${entry.title}`}
-              {entry.planned_duration_minutes
-                ? ` · ${labelForDuration(entry.planned_duration_minutes)} planned`
-                : ""}
-              {` · ${planStatusLabel(entry.status)}`}
-            </li>
-          ))}
+        <ul className="mt-3 divide-y divide-border">
+          {entries.map((entry) => {
+            const done = entry.status === "completed";
+            return (
+              <li key={entry.id} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-[15px] font-medium text-foreground">
+                    {entry.training_type === "rest" ? "Rest day" : entry.title}
+                  </p>
+                  <p className="text-[12px] text-muted">
+                    {entry.training_type === "rest"
+                      ? "Recovery"
+                      : labelForTrainingType(entry.training_type)}
+                    {entry.planned_duration_minutes
+                      ? ` · ${labelForDuration(entry.planned_duration_minutes)}`
+                      : ""}
+                  </p>
+                </div>
+                <StatusBadge tone={done ? "done" : "open"}>
+                  {planStatusLabel(entry.status)}
+                </StatusBadge>
+              </li>
+            );
+          })}
         </ul>
       )}
-      {data.hasIncompletePlannedTraining ? (
-        <Link
-          href="/train"
-          className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-        >
-          Mark workout complete
-        </Link>
-      ) : (
-        <Link
-          href="/train"
-          className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-        >
-          + Log workout
-        </Link>
-      )}
-    </section>
+      <Link
+        href="/train"
+        className={`${buttonClassName()} mt-3`}
+      >
+        {data.hasIncompletePlannedTraining ? "Start workout" : "Log workout"}
+      </Link>
+    </Card>
   );
 }
 
@@ -195,21 +211,13 @@ function RecoverySection({
 }) {
   if (!data.hasCheckIn || !data.checkIn) {
     return (
-      <section id="check-in" className="today-reveal scroll-mt-24">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Recovery
-        </h2>
-        <p className="mt-4 text-[15px] leading-7 text-muted">
-          No check-in yet today.
-        </p>
-        <button
-          type="button"
-          onClick={onStart}
-          className="mt-4 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-        >
+      <Card id="check-in" className="today-reveal scroll-mt-24">
+        <SectionTitle>Check-in</SectionTitle>
+        <EmptyState>No check-in yet today.</EmptyState>
+        <button type="button" onClick={onStart} className={`${buttonClassName()} mt-3`}>
           Start check-in
         </button>
-      </section>
+      </Card>
     );
   }
 
@@ -222,32 +230,30 @@ function RecoverySection({
     hydrated.feelingRating != null ? `${hydrated.feelingRating} / 5` : "—";
 
   return (
-    <section id="check-in" className="today-reveal scroll-mt-24">
-      <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-        Recovery
-      </h2>
-      <dl className="mt-4 space-y-2 text-[15px] leading-7">
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">Sleep</dt>
-          <dd>{sleepLabel}</dd>
+    <Card id="check-in" className="today-reveal scroll-mt-24">
+      <SectionTitle>Check-in</SectionTitle>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl bg-background px-2 py-2">
+          <dt className="text-[11px] text-muted">Sleep</dt>
+          <dd className="mt-0.5 text-[14px] font-semibold text-foreground">{sleepLabel}</dd>
         </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">Quality</dt>
-          <dd>{qualityLabel}</dd>
+        <div className="rounded-xl bg-background px-2 py-2">
+          <dt className="text-[11px] text-muted">Quality</dt>
+          <dd className="mt-0.5 text-[14px] font-semibold text-foreground">{qualityLabel}</dd>
         </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">Feeling</dt>
-          <dd>{feelingLabel}</dd>
+        <div className="rounded-xl bg-background px-2 py-2">
+          <dt className="text-[11px] text-muted">Feeling</dt>
+          <dd className="mt-0.5 text-[14px] font-semibold text-foreground">{feelingLabel}</dd>
         </div>
       </dl>
       <button
         type="button"
         onClick={onEdit}
-        className="mt-4 text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+        className={`${buttonClassName("secondary")} mt-3`}
       >
         Edit check-in
       </button>
-    </section>
+    </Card>
   );
 }
 
@@ -666,14 +672,7 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
 
   return (
     <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
-      <header className="mb-6">
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-          Today
-        </p>
-        <h1 className="mt-3 font-serif text-[2.15rem] leading-tight tracking-tight sm:text-5xl">
-          {greeting}
-        </h1>
-      </header>
+      <PageHeader eyebrow="Today" title={greeting} />
 
       {loadError ? (
         <p role="alert" className="mb-6 text-[13px] leading-6 text-muted">
@@ -698,107 +697,92 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
       />
 
       {data?.weeklyCheckInDue ? (
-        <section className="today-reveal mb-6 rounded-2xl border border-border/70 px-4 py-3.5">
-          <p className="text-[14px] leading-6 text-foreground/90">
+        <Card className="today-reveal mb-4">
+          <p className="text-[14px] leading-6 text-foreground">
             Your weekly check-in is due — a quick review of weight, hunger and
             how the plan felt.
           </p>
           <Link
             href="/progress?checkin=1"
-            className="mt-2 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
+            className={`${buttonClassName()} mt-3`}
           >
             Start weekly check-in
           </Link>
-        </section>
-      ) : null}
-
-      {data && coachingSummary ? (
-        <section className="today-reveal mb-8">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-            Coach&apos;s Take
-          </h2>
-          <div className="mt-3 space-y-2">
-            {coachingSummary.sentences.map((sentence) => (
-              <p
-                key={sentence}
-                className="font-serif text-[1.25rem] leading-snug tracking-tight text-foreground sm:text-[1.35rem]"
-              >
-                {sentence}
-              </p>
-            ))}
-          </div>
-        </section>
+        </Card>
       ) : null}
 
       {data ? (
-        <div className="flex flex-col gap-9">
-          <NutritionSection data={data} now={now} />
-          <TrainingSection data={data} />
+        <div className="flex flex-col gap-4">
+          {nextAction && nextAction.type !== "all_caught_up" ? (
+            <Card className="today-reveal border-primary/30">
+              <SectionTitle>Next</SectionTitle>
+              <p className="mt-1 text-[16px] font-semibold text-foreground">
+                {nextAction.title}
+              </p>
+              <p className="mt-1 text-[13px] leading-5 text-muted">
+                {nextAction.description}
+              </p>
+              {nextAction.type === "morning_check_in" ? (
+                <button
+                  type="button"
+                  onClick={() => setPanel("check-in")}
+                  className={`${buttonClassName()} mt-3`}
+                >
+                  {nextAction.action.label}
+                </button>
+              ) : (
+                <Link
+                  href={nextAction.action.href}
+                  className={`${buttonClassName()} mt-3`}
+                >
+                  {nextAction.action.label}
+                </Link>
+              )}
+            </Card>
+          ) : null}
 
-          <section className="today-reveal">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-                Food
-              </h2>
-              <Link
-                href="/nutrition"
-                className="text-[13px] text-muted transition-colors hover:text-foreground"
-              >
-                Open Nutrition
+          <TrainingSection data={data} />
+          <NutritionSection data={data} now={now} />
+          <RecoverySection
+            data={data}
+            onStart={() => setPanel("check-in")}
+            onEdit={() => setPanel("check-in")}
+          />
+
+          {coachingSummary ? (
+            <Card className="today-reveal">
+              <SectionTitle>Coach</SectionTitle>
+              <div className="mt-2 space-y-2">
+                {coachingSummary.sentences.map((sentence) => (
+                  <p key={sentence} className="text-[15px] leading-6 text-foreground">
+                    {sentence}
+                  </p>
+                ))}
+              </div>
+              <Link href="/coach" className={`${buttonClassName("secondary")} mt-3`}>
+                Ask Coach
               </Link>
-            </div>
-            {data.nutrition &&
-            (data.nutrition.eatenEntries.length > 0 ||
-              data.nutrition.plannedEntries.length > 0) ? (
-              <ul className="mt-3 space-y-1.5">
-                {[
-                  ...data.nutrition.eatenEntries,
-                  ...data.nutrition.plannedEntries,
-                ]
-                  .slice(0, 4)
-                  .map((entry) => (
-                    <li
-                      key={entry.id}
-                      className="text-[13px] leading-5 text-muted"
-                    >
-                      {entryDisplayTitle(entry)}
-                      {entry.status === "planned" ? " · planned" : ""}
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-[14px] text-muted">Nothing logged yet.</p>
-            )}
-            <Link
-              href="/nutrition"
-              className="mt-3 inline-flex text-[14px] text-foreground/90 underline-offset-4 hover:underline"
-            >
-              + Add food
-            </Link>
-          </section>
+            </Card>
+          ) : null}
 
           {(mealInspirationAction ||
             displayCoachMoment?.showInspirationCta) && (
-            <section className="today-reveal flex items-center justify-between gap-3 border-t border-border/60 pt-5">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
-                  Meal ideas
-                </p>
-                <p className="mt-1 text-[13px] text-muted">
-                  {mealInspirationAction
-                    ? `Ideas for ${mealInspirationAction.type}`
-                    : "Ask Coach for inspiration"}
-                </p>
-              </div>
+            <Card className="today-reveal">
+              <SectionTitle>Meal ideas</SectionTitle>
+              <p className="mt-1 text-[13px] text-muted">
+                {mealInspirationAction
+                  ? `Ideas for ${mealInspirationAction.type}`
+                  : "Ask Coach for inspiration"}
+              </p>
               <button
                 type="button"
                 disabled={inspirationPending}
                 onClick={handleNeedInspiration}
-                className="shrink-0 text-[13px] text-foreground/90 underline-offset-4 hover:underline disabled:opacity-60"
+                className={`${buttonClassName("secondary")} mt-3`}
               >
                 {inspirationPending ? "Opening…" : "Need inspiration"}
               </button>
-            </section>
+            </Card>
           )}
           {inspirationError ? (
             <p role="alert" className="text-[13px] text-muted">
@@ -813,10 +797,8 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
           ) : null}
 
           {showHabitMoment ? (
-            <section className="today-reveal">
-              <h2 className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
-                Habit
-              </h2>
+            <Card className="today-reveal">
+              <SectionTitle>Habit</SectionTitle>
               <p className="mt-2 text-[15px] leading-6 text-foreground">
                 {showHabitMoment.title}
               </p>
@@ -825,7 +807,7 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
                   type="button"
                   disabled={habitPending}
                   onClick={() => handleHabitYes(showHabitMoment)}
-                  className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-60"
+                  className={buttonClassName()}
                 >
                   Yes — log it
                 </button>
@@ -833,7 +815,7 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
                   type="button"
                   disabled={habitPending}
                   onClick={() => handleHabitNo(showHabitMoment)}
-                  className="inline-flex min-h-10 items-center rounded-full border border-border px-4 text-[13px] text-foreground disabled:opacity-60"
+                  className={buttonClassName("secondary")}
                 >
                   Not today
                 </button>
@@ -846,37 +828,8 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
               >
                 I don’t have this habit anymore
               </button>
-            </section>
+            </Card>
           ) : null}
-
-          <RecoverySection
-            data={data}
-            onStart={() => setPanel("check-in")}
-            onEdit={() => setPanel("check-in")}
-          />
-
-          <section className="today-reveal border-t border-border/70 pt-6">
-            <div className="flex flex-wrap gap-x-5 gap-y-3 text-[14px]">
-              <Link
-                href="/nutrition"
-                className="text-foreground/90 underline-offset-4 hover:underline"
-              >
-                + Add food
-              </Link>
-              <Link
-                href="/train"
-                className="text-foreground/90 underline-offset-4 hover:underline"
-              >
-                + Log workout
-              </Link>
-              <Link
-                href="/coach"
-                className="text-foreground/90 underline-offset-4 hover:underline"
-              >
-                Ask Coach
-              </Link>
-            </div>
-          </section>
         </div>
       ) : null}
     </div>

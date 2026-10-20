@@ -130,7 +130,7 @@ export function WorkoutLogSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#242B33]/40 px-4 pb-8 pt-16 sm:items-center sm:pb-4">
       <button
         type="button"
         aria-label="Close"
@@ -141,7 +141,7 @@ export function WorkoutLogSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="workout-log-title"
-        className="relative max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-[1.75rem] border border-border bg-background p-5 shadow-[0_24px_80px_rgb(0_0_0/0.45)]"
+        className="relative max-h-[min(90vh,40rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-[0_16px_40px_rgb(36_43_51/0.12)]"
       >
         <p
           id="workout-log-title"
@@ -173,7 +173,7 @@ export function WorkoutLogSheet({
               value={sessionDate}
               max={today}
               onChange={(event) => setSessionDate(event.target.value)}
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -183,7 +183,7 @@ export function WorkoutLogSheet({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="e.g. HIIT session"
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -197,8 +197,8 @@ export function WorkoutLogSheet({
                   onClick={() => setTrainingType(option.id)}
                   className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${
                     trainingType === option.id
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border text-foreground hover:border-white/20"
+                      ? "border-primary bg-primary text-white"
+                      : "border-border text-foreground hover:border-primary/40"
                   }`}
                 >
                   {option.label}
@@ -220,7 +220,7 @@ export function WorkoutLogSheet({
                   ? `Planned ${plan.planned_duration_minutes} — enter actual`
                   : "e.g. 45"
               }
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -238,8 +238,8 @@ export function WorkoutLogSheet({
                   }
                   className={`rounded-full border px-3 py-2 text-[13px] transition-colors ${
                     intensity === option.id
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border text-foreground hover:border-white/20"
+                      ? "border-primary bg-primary text-white"
+                      : "border-border text-foreground hover:border-primary/40"
                   }`}
                 >
                   {option.label}
@@ -257,7 +257,7 @@ export function WorkoutLogSheet({
               value={calories}
               onChange={(event) => setCalories(event.target.value)}
               placeholder="Leave blank if unknown — we won’t invent a number"
-              className="h-11 rounded-full border border-border bg-surface/60 px-4 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="h-11 rounded-full border border-border bg-surface px-4 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
 
@@ -268,7 +268,7 @@ export function WorkoutLogSheet({
               onChange={(event) => setNotes(event.target.value)}
               rows={3}
               placeholder="How it felt…"
-              className="rounded-2xl border border-border bg-surface/60 px-4 py-3 text-[14px] text-foreground outline-none focus:border-white/20"
+              className="rounded-2xl border border-border bg-surface px-4 py-3 text-[14px] text-foreground outline-none focus:border-primary"
             />
           </label>
         </div>
@@ -283,7 +283,7 @@ export function WorkoutLogSheet({
           <button
             type="button"
             disabled={saving}
-            className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+            className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
             onClick={() => void handleSave()}
           >
             {saving ? "Saving…" : "Save workout"}
