@@ -116,7 +116,8 @@ When a feature needs schema changes:
    - `npx supabase migration new <short_snake_name>`
    - or an equivalently named additive SQL file under `supabase/migrations/`
 2. Put only the required SQL in that file.
-3. Do not edit or recreate older migration files to change production history.
+3. In that same file, grant Data API access explicitly. New tables in `public` are not exposed to `supabase-js` automatically. Follow `.cursor/rules/supabase-data-api-grants.mdc`: least privilege for `anon`, `authenticated`, and `service_role`, with RLS on user data. Do not grant `anon` access to personal data.
+4. Do not edit or recreate older migration files to change production history.
 
 ### Before applying to the remote project
 
