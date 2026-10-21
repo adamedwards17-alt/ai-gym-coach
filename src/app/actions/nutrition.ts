@@ -4,6 +4,7 @@ import {
   GeminiProvider,
   isGeminiConfigured,
 } from "@/lib/ai/providers/gemini";
+import { applySavedFoodsToEntries } from "@/app/actions/saved-food";
 import { getCurrentUser, isLocalPreviewActive } from "@/lib/auth/session";
 import { previewNutritionEntries } from "@/lib/local-preview-data";
 import {
@@ -184,7 +185,7 @@ export async function listRecentNutritionEntries(
       }
     }
 
-    return { status: "ok", entries };
+    return { status: "ok", entries: await applySavedFoodsToEntries(entries) };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown nutrition list error";
@@ -545,6 +546,18 @@ export async function searchRecentNutritionEntries(input: {
     return { status: "error", message: "That meal category isn’t valid." };
   }
 
+  if (await isLocalPreviewActive()) {
+    const previewMeal =
+      input.mealType && !input.searchAllCategories ? input.mealType : null;
+    const entries = previewNutritionEntries(input.localDate).filter((entry) => {
+      if (previewMeal && entry.meal_type !== previewMeal) {
+        return false;
+      }
+      return entry.logged_date <= input.localDate && entryMatchesQuery(entry, query);
+    });
+    return { status: "ok", entries: entries.slice(0, 6) };
+  }
+
   if (!isSupabaseConfigured()) {
     return {
       status: "error",
@@ -634,7 +647,7 @@ export async function searchRecentNutritionEntries(input: {
     ranked.sort((a, b) => a.rank - b.rank || a.order - b.order);
     const entries = ranked.slice(0, 6).map((item) => item.entry);
 
-    return { status: "ok", entries };
+    return { status: "ok", entries: await applySavedFoodsToEntries(entries) };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown nutrition search error";

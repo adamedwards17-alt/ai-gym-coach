@@ -8,19 +8,34 @@ import {
 import { RecentFoodPicker } from "@/components/nutrition/RecentFoodPicker";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { cardClass } from "@/components/ui/surfaces";
-import { labelForMealType, type NutritionEntryRecord } from "@/lib/nutrition";
 import {
+  labelForMealType,
+  type MealTypeId,
+  type NutritionEntryRecord,
+} from "@/lib/nutrition";
+import {
+  ADD_NEW_FOOD_LABEL,
   entriesNotAlreadyLogged,
   formatUsualServing,
-  nutritionUsualKey,
+  LOGGED_TODAY_LABEL,
+  loggedTodayKeys,
   recentUsualGroups,
   type NutritionUsual,
 } from "@/lib/nutrition-usuals";
+import {
+  findSavedFood,
+  overlaySavedFoods,
+  savedFoodLoggedToday,
+  type SavedFoodDefinition,
+} from "@/lib/saved-food";
 
 type MyUsualsPanelProps = {
   loggedDate: string;
   existingEntries: NutritionEntryRecord[];
   onAdded: () => Promise<void> | void;
+  onCreate?: (mealType?: MealTypeId | null) => void;
+  savedFoods?: SavedFoodDefinition[];
+  onEditFood?: (entry: NutritionEntryRecord) => void;
 };
 
 function macroLine(item: NutritionUsual): string {
@@ -31,6 +46,9 @@ export function MyUsualsPanel({
   loggedDate,
   existingEntries,
   onAdded,
+  onCreate,
+  savedFoods = [],
+  onEditFood,
 }: MyUsualsPanelProps) {
   const [history, setHistory] = useState<NutritionEntryRecord[]>([]);
   const [yesterday, setYesterday] = useState<NutritionEntryRecord[]>([]);
@@ -54,11 +72,24 @@ export function MyUsualsPanel({
     };
   }, [loggedDate, existingEntries.length]);
 
-  const groups = useMemo(() => recentUsualGroups(history), [history]);
-  const alreadyLogged = useMemo(
-    () => new Set(existingEntries.map((entry) => nutritionUsualKey(entry))),
-    [existingEntries],
+  const groups = useMemo(
+    () => recentUsualGroups(overlaySavedFoods(history, savedFoods)),
+    [history, savedFoods],
   );
+  const loggedByMeal = useMemo(() => {
+    const meals = new Map<string, Set<string>>();
+    for (const group of groups) {
+      const key = group.mealType ?? "none";
+      meals.set(
+        key,
+        loggedTodayKeys(
+          existingEntries,
+          group.mealType ?? undefined,
+        ),
+      );
+    }
+    return meals;
+  }, [existingEntries, groups]);
   const yesterdayChoices = useMemo(
     () => entriesNotAlreadyLogged(yesterday, existingEntries),
     [yesterday, existingEntries],
@@ -74,6 +105,7 @@ export function MyUsualsPanel({
     ids: string[],
     clear: () => void,
     preserveStatus = false,
+    mealType?: MealTypeId | null,
   ) {
     if (busy || ids.length === 0) {
       return;
@@ -85,6 +117,8 @@ export function MyUsualsPanel({
       loggedDate,
       sourceEntryIds: ids,
       preserveStatus,
+      allowDuplicates: !preserveStatus,
+      mealType,
     });
     setBusy(false);
     if (result.status !== "ok") {
@@ -104,15 +138,28 @@ export function MyUsualsPanel({
     await onAdded();
   }
 
-  if (groups.length === 0 && yesterday.length === 0) {
+  if (groups.length === 0 && yesterday.length === 0 && !onCreate) {
     return null;
   }
 
   return (
     <section className={`${cardClass} px-4 py-4`}>
-      <h2 className="text-[13px] font-medium uppercase tracking-[0.16em] text-muted">
-        My usuals
-      </h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[13px] font-medium uppercase tracking-[0.16em] text-muted">
+          My usuals
+        </h2>
+        {onCreate ? (
+          <button
+            type="button"
+            aria-label={ADD_NEW_FOOD_LABEL}
+            title={ADD_NEW_FOOD_LABEL}
+            onClick={() => onCreate(null)}
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-[1.35rem] font-semibold leading-none text-white"
+          >
+            +
+          </button>
+        ) : null}
+      </div>
       {groups.length === 0 ? (
         <p className="mt-3 text-[14px] leading-6 text-muted">
           Foods you log will show up here for next time.
@@ -127,21 +174,40 @@ export function MyUsualsPanel({
                 busy={busy}
                 selectedIds={selected}
                 items={group.items.map((item) => {
-                  const logged = alreadyLogged.has(item.key);
+                  const todayKeys =
+                    loggedByMeal.get(group.mealType ?? "none") ?? new Set<string>();
+                  const logged = savedFoodLoggedToday(item.key, todayKeys, savedFoods);
+                  const saved = findSavedFood(savedFoods, { name: item.name });
                   return {
                     id: item.sourceEntryId,
                     title: item.name,
-                    disabled: logged,
-                    detail: `${formatUsualServing(item.portions)} · ${macroLine(item)} · adds to ${group.label}${logged ? " · already logged" : ""}`,
+                    note: logged ? LOGGED_TODAY_LABEL : undefined,
+                    detail: `${saved?.servingLabel ?? formatUsualServing(item.portions)} · ${macroLine(item)}`,
                   };
                 })}
+                onEdit={
+                  onEditFood
+                    ? (id) => {
+                        const entry = history.find((item) => item.id === id);
+                        if (entry) {
+                          onEditFood(entry);
+                        }
+                      }
+                    : undefined
+                }
                 onToggle={(id) => toggle(id, selected, setSelected)}
                 onAdd={() => {
                   const ids = group.items
                     .map((item) => item.sourceEntryId)
                     .filter((id) => selected.includes(id));
-                  void addSources(ids, () =>
-                    setSelected((current) => current.filter((id) => !ids.includes(id))),
+                  void addSources(
+                    ids,
+                    () =>
+                      setSelected((current) =>
+                        current.filter((id) => !ids.includes(id)),
+                      ),
+                    false,
+                    group.mealType,
                   );
                 }}
               />

@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/evening-check-in";
 import { estimateNutritionFood, saveNutritionEntry } from "@/app/actions/nutrition";
 import { copyNutritionEntriesToDate, loadQuickMealContext } from "@/app/actions/nutrition-quick-log";
+import { loadSavedFoodDefinitions } from "@/app/actions/saved-food";
 import { buttonClassName } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui/surfaces";
 import {
@@ -19,14 +20,27 @@ import {
   type EveningMainMeal,
   type EveningStep,
 } from "@/lib/evening-check-in";
-import type { NutritionEstimate } from "@/lib/nutrition";
-import { labelForMealType } from "@/lib/nutrition";
+import {
+  entryDisplayTitle,
+  labelForMealType,
+  type NutritionEntryRecord,
+  type NutritionEstimate,
+} from "@/lib/nutrition";
 import { RecentFoodPicker } from "@/components/nutrition/RecentFoodPicker";
+import { SavedFoodEditor } from "@/components/nutrition/SavedFoodEditor";
 import {
   compareUsualsByRecency,
   formatUsualServing,
+  LOGGED_TODAY_LABEL,
   recentUsualsForMeal,
 } from "@/lib/nutrition-usuals";
+import {
+  findSavedFood,
+  overlaySavedFoods,
+  savedFoodLoggedToday,
+  upsertSavedFood,
+  type SavedFoodDefinition,
+} from "@/lib/saved-food";
 
 export function EveningCheckInExperience({ date }: { date: string | null }) {
   const router = useRouter();
@@ -361,7 +375,9 @@ function FoodLogger({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [usuals, setUsuals] = useState<ReturnType<typeof recentUsualsForMeal>>([]);
+  const [history, setHistory] = useState<NutritionEntryRecord[]>([]);
+  const [savedFoods, setSavedFoods] = useState<SavedFoodDefinition[]>([]);
+  const [editingSaved, setEditingSaved] = useState<NutritionEntryRecord | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [estimate, setEstimate] = useState<NutritionEstimate | null>(null);
@@ -369,20 +385,34 @@ function FoodLogger({
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     void loadQuickMealContext(date).then((result) => {
-      if (result.status !== "ok") {
+      if (cancelled || result.status !== "ok") {
         return;
       }
-      const items =
-        meal === "snack"
-          ? [
-              ...recentUsualsForMeal(result.context.history, "snack"),
-              ...recentUsualsForMeal(result.context.history, "drink"),
-            ].sort(compareUsualsByRecency)
-          : recentUsualsForMeal(result.context.history, meal);
-      setUsuals(items);
+      setHistory(result.context.history);
     });
+    void loadSavedFoodDefinitions().then((result) => {
+      if (cancelled || result.status !== "ok" || result.foods.length === 0) {
+        return;
+      }
+      setSavedFoods(result.foods);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [date, meal]);
+
+  const usuals = useMemo(() => {
+    const entries = overlaySavedFoods(history, savedFoods);
+    if (meal === "snack") {
+      return [
+        ...recentUsualsForMeal(entries, "snack"),
+        ...recentUsualsForMeal(entries, "drink"),
+      ].sort(compareUsualsByRecency);
+    }
+    return recentUsualsForMeal(entries, meal);
+  }, [history, meal, savedFoods]);
 
   async function addSelected() {
     const chosen = usuals.filter((item) => selectedIds.includes(item.sourceEntryId));
@@ -393,6 +423,8 @@ function FoodLogger({
     const result = await copyNutritionEntriesToDate({
       loggedDate: date,
       sourceEntryIds: chosen.map((item) => item.sourceEntryId),
+      allowDuplicates: true,
+      mealType: meal,
     });
     setWorking(false);
     if (result.status !== "ok") {
@@ -400,7 +432,7 @@ function FoodLogger({
       return;
     }
     if (result.added === 0) {
-      setNote("That’s already in the diary.");
+      setNote("Those foods couldn’t be added.");
       return;
     }
     setSelectedIds([]);
@@ -410,10 +442,6 @@ function FoodLogger({
   async function reviewDescription() {
     const text = description.trim();
     if (!text) {
-      return;
-    }
-    if (foodAlreadyLogged(existing, text)) {
-      setNote("That’s already in the diary.");
       return;
     }
     setWorking(true);
@@ -449,6 +477,7 @@ function FoodLogger({
   }
 
   return (
+    <>
     <Card>
       <SectionTitle>Add {labelForMealType(meal).toLowerCase()}</SectionTitle>
       {usuals.length > 0 ? (
@@ -458,14 +487,31 @@ function FoodLogger({
             busy={working || busy}
             selectedIds={selectedIds}
             items={usuals.map((item) => {
-              const logged = foodAlreadyLogged(existing, item.name);
+              const todayKeys = new Set(
+                existing
+                  .filter((entry) => entry.meal_type === meal && entry.status === "eaten")
+                  .map((entry) => entryDisplayTitle(entry).trim().toLowerCase()),
+              );
+              const logged =
+                savedFoodLoggedToday(item.key, todayKeys, savedFoods) ||
+                foodAlreadyLogged(
+                  existing.filter((entry) => entry.meal_type === meal),
+                  item.name,
+                );
+              const saved = findSavedFood(savedFoods, { name: item.name });
               return {
                 id: item.sourceEntryId,
                 title: item.name,
-                disabled: logged,
-                detail: `${formatUsualServing(item.portions)} · ${Math.round(item.calories)} kcal${logged ? " · already logged" : ""}`,
+                note: logged ? LOGGED_TODAY_LABEL : undefined,
+                detail: `${saved?.servingLabel ?? formatUsualServing(item.portions)} · ${Math.round(item.calories)} kcal · ${Math.round(item.proteinG)}g protein`,
               };
             })}
+            onEdit={(id) => {
+              const entry = history.find((item) => item.id === id);
+              if (entry) {
+                setEditingSaved(entry);
+              }
+            }}
             onToggle={(id) =>
               setSelectedIds((current) =>
                 current.includes(id)
@@ -522,5 +568,20 @@ function FoodLogger({
         Back
       </button>
     </Card>
+    {editingSaved ? (
+      <SavedFoodEditor
+        entry={editingSaved}
+        definition={findSavedFood(savedFoods, {
+          mealId: editingSaved.meal_id,
+          name: entryDisplayTitle(editingSaved),
+        })}
+        onClose={() => setEditingSaved(null)}
+        onSaved={(food) => {
+          setSavedFoods((current) => upsertSavedFood(current, food));
+          setEditingSaved(null);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

@@ -24,6 +24,10 @@ export type NutritionUsual = {
 /** How many saved foods a meal picker shows before the list scrolls. */
 export const RECENT_FOOD_VISIBLE_COUNT = 3;
 
+export const LOGGED_TODAY_LABEL = "Logged today";
+
+export const ADD_NEW_FOOD_LABEL = "Add a new food or meal";
+
 const MEAL_ORDER: Array<MealTypeId | null> = [
   "breakfast",
   "lunch",
@@ -168,6 +172,52 @@ export function groupNutritionUsuals(
       },
     ];
   });
+}
+
+/** Eaten foods for this date. A meal filter keeps the label specific to that list. */
+export function loggedTodayKeys(
+  entries: NutritionEntryRecord[],
+  mealType?: MealTypeId,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    if (entry.status !== "eaten") {
+      continue;
+    }
+    if (mealType && entry.meal_type !== mealType) {
+      continue;
+    }
+    const key = nutritionUsualKey(entry);
+    if (key) {
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Rows to insert. Duplicates are allowed so a second serving is a new log,
+ * not an update of the earlier one. Repeat-yesterday still skips names
+ * already on the day.
+ */
+export function entriesToCopy(
+  sources: NutritionEntryRecord[],
+  existing: NutritionEntryRecord[],
+  options?: { allowDuplicates?: boolean },
+): NutritionEntryRecord[] {
+  if (options?.allowDuplicates) {
+    const seen = new Set<string>();
+    const copy: NutritionEntryRecord[] = [];
+    for (const entry of sources) {
+      if (seen.has(entry.id)) {
+        continue;
+      }
+      seen.add(entry.id);
+      copy.push(entry);
+    }
+    return copy;
+  }
+  return entriesNotAlreadyLogged(sources, existing);
 }
 
 export function entriesNotAlreadyLogged(

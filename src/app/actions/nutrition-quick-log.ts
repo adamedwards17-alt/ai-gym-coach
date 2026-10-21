@@ -6,11 +6,15 @@ import {
   NUTRITION_ENTRY_SELECT,
   toNutritionEntryRecord,
 } from "@/lib/nutrition-day";
-import { isValidLoggedDate, type NutritionEntryRecord } from "@/lib/nutrition";
 import {
-  entriesNotAlreadyLogged,
-  yesterdayLoggedDate,
-} from "@/lib/nutrition-usuals";
+  isMealTypeId,
+  isValidLoggedDate,
+  type MealTypeId,
+  type NutritionEntryRecord,
+} from "@/lib/nutrition";
+import { entriesToCopy, yesterdayLoggedDate } from "@/lib/nutrition-usuals";
+import { loadSavedFoodDefinitions } from "@/app/actions/saved-food";
+import { overlaySavedFoods, snapshotForNewLog } from "@/lib/saved-food";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
@@ -78,10 +82,12 @@ export async function loadQuickMealContext(loggedDate: string): Promise<
       );
       return { status: "error", message: "Saved foods couldn’t be loaded." };
     }
+    const savedFoods = await loadSavedFoodDefinitions();
+    const foods = savedFoods.status === "ok" ? savedFoods.foods : [];
     return {
       status: "ok",
       context: {
-        history: rowsToEntries(historyResult.data),
+        history: overlaySavedFoods(rowsToEntries(historyResult.data), foods),
         yesterday: rowsToEntries(yesterdayResult.data),
         yesterdayDate,
       },
@@ -100,6 +106,10 @@ export async function copyNutritionEntriesToDate(input: {
   sourceEntryIds: string[];
   /** Repeat yesterday keeps planned meals planned. Quick adds are eaten. */
   preserveStatus?: boolean;
+  /** A second serving of a food already on this day is inserted as a new row. */
+  allowDuplicates?: boolean;
+  /** When set, the new rows belong to this meal rather than the source row's meal. */
+  mealType?: MealTypeId | null;
 }): Promise<
   | { status: "ok"; added: number; skipped: number }
   | { status: "error"; message: string }
@@ -110,6 +120,9 @@ export async function copyNutritionEntriesToDate(input: {
   const sourceIds = [...new Set(input.sourceEntryIds.filter((id) => id.trim()))].slice(0, 40);
   if (sourceIds.length === 0) {
     return { status: "error", message: "Choose at least one food." };
+  }
+  if (input.mealType != null && !isMealTypeId(input.mealType)) {
+    return { status: "error", message: "That meal category isn’t valid." };
   }
   if (!isSupabaseConfigured()) {
     return { status: "error", message: "Supabase isn’t connected." };
@@ -143,32 +156,39 @@ export async function copyNutritionEntriesToDate(input: {
 
     const sources = rowsToEntries(sourcesResult.data);
     const existing = rowsToEntries(existingResult.data);
-    const toCopy = entriesNotAlreadyLogged(sources, existing);
+    const savedFoods = await loadSavedFoodDefinitions();
+    const foods = savedFoods.status === "ok" ? savedFoods.foods : [];
+    const toCopy = entriesToCopy(sources, existing, {
+      allowDuplicates: input.allowDuplicates,
+    });
     const skipped = sourceIds.length - toCopy.length;
     if (toCopy.length === 0) {
       return { status: "ok", added: 0, skipped: sourceIds.length };
     }
 
     const { error } = await supabase.from("nutrition_entries").insert(
-      toCopy.map((entry) => ({
-        user_id: user.id,
-        logged_date: input.loggedDate,
-        meal_type: entry.meal_type,
-        description: entry.description,
-        display_name: entry.display_name,
-        search_aliases: entry.search_aliases,
-        barcode: entry.barcode,
-        brand: entry.brand,
-        status: input.preserveStatus ? entry.status : ("eaten" as const),
-        calories_estimated: entry.calories_estimated,
-        protein_g_estimated: entry.protein_g_estimated,
-        carbs_g_estimated: entry.carbs_g_estimated,
-        fat_g_estimated: entry.fat_g_estimated,
-        estimation_confidence: entry.estimation_confidence,
-        estimation_source: entry.estimation_source,
-        meal_id: entry.meal_id,
-        portions: entry.portions,
-      })),
+      toCopy.map((entry) => {
+        const saved = snapshotForNewLog(entry, foods);
+        return {
+          user_id: user.id,
+          logged_date: input.loggedDate,
+          meal_type: input.mealType ?? entry.meal_type,
+          description: entry.description,
+          display_name: saved?.displayName ?? entry.display_name,
+          search_aliases: entry.search_aliases,
+          barcode: entry.barcode,
+          brand: entry.brand,
+          status: input.preserveStatus ? entry.status : ("eaten" as const),
+          calories_estimated: saved?.calories ?? entry.calories_estimated,
+          protein_g_estimated: saved?.proteinG ?? entry.protein_g_estimated,
+          carbs_g_estimated: saved?.carbsG ?? entry.carbs_g_estimated,
+          fat_g_estimated: saved?.fatG ?? entry.fat_g_estimated,
+          estimation_confidence: entry.estimation_confidence,
+          estimation_source: saved ? ("user" as const) : entry.estimation_source,
+          meal_id: saved?.mealId ?? entry.meal_id,
+          portions: saved?.portions ?? entry.portions,
+        };
+      }),
     );
     if (error) {
       console.error("[nutrition] Quick copy insert failed:", error.message);

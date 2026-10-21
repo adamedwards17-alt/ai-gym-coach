@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { NutritionEntryRecord } from "@/lib/nutrition";
+import { summariseNutritionDay } from "@/lib/nutrition-day";
 import {
+  ADD_NEW_FOOD_LABEL,
   buildNutritionUsuals,
   entriesNotAlreadyLogged,
+  entriesToCopy,
   groupNutritionUsuals,
+  loggedTodayKeys,
   recentUsualGroups,
   recentUsualsForMeal,
   sumUsualMacros,
@@ -154,5 +158,77 @@ describe("nutrition usuals", () => {
       ["Chicken", "Salad"],
     );
     assert.equal(groups.find((group) => group.mealType === "breakfast"), undefined);
+  });
+
+  it("keeps a food selectable after it was logged today and inserts a new row", () => {
+    const existing = entry({
+      id: "today-omelette",
+      description: "Omelette",
+      logged_date: "2026-10-21",
+      meal_type: "breakfast",
+      calories_estimated: 300,
+      protein_g_estimated: 20,
+    });
+    const source = entry({
+      id: "saved-omelette",
+      description: "Omelette",
+      logged_date: "2026-10-20",
+      meal_type: "breakfast",
+      calories_estimated: 300,
+      protein_g_estimated: 20,
+    });
+    assert.equal(loggedTodayKeys([existing], "breakfast").has("omelette"), true);
+    assert.equal(loggedTodayKeys([existing], "lunch").has("omelette"), false);
+    const planned = entry({
+      id: "planned",
+      description: "Omelette",
+      logged_date: "2026-10-21",
+      meal_type: "lunch",
+      status: "planned",
+    });
+    assert.equal(loggedTodayKeys([planned], "lunch").size, 0);
+
+    const copy = entriesToCopy([source], [existing], { allowDuplicates: true });
+    assert.deepEqual(copy.map((item) => item.id), ["saved-omelette"]);
+    assert.equal(existing.id, "today-omelette");
+    assert.equal(entriesToCopy([source], [existing]).length, 0);
+    assert.equal(ADD_NEW_FOOD_LABEL, "Add a new food or meal");
+  });
+
+  it("adds a second serving to the daily total without replacing the first", () => {
+    const first = entry({
+      id: "first",
+      description: "Omelette",
+      logged_date: "2026-10-21",
+      calories_estimated: 300,
+      protein_g_estimated: 20,
+      carbs_g_estimated: 2,
+      fat_g_estimated: 22,
+    });
+    const second = entry({
+      id: "second",
+      description: "Omelette",
+      logged_date: "2026-10-21",
+      meal_type: "lunch",
+      calories_estimated: 300,
+      protein_g_estimated: 20,
+      carbs_g_estimated: 2,
+      fat_g_estimated: 22,
+    });
+    const summary = summariseNutritionDay({
+      localDate: "2026-10-21",
+      targets: null,
+      targetsStatus: "missing",
+      targetsMessage: null,
+      entries: [first, second],
+    });
+    assert.deepEqual(
+      summary.eatenEntries.map((item) => item.id),
+      ["first", "second"],
+    );
+    assert.equal(summary.consumed.calories, 600);
+    assert.equal(summary.consumed.proteinG, 40);
+    assert.equal(summary.consumed.carbsG, 4);
+    assert.equal(summary.consumed.fatG, 44);
   });
 });
