@@ -14,7 +14,7 @@ import {
   updateNutritionEntry,
 } from "@/app/actions/nutrition";
 import { copyNutritionEntriesToDate } from "@/app/actions/nutrition-quick-log";
-import { BarcodeScanPanel } from "@/components/nutrition/BarcodeScanPanel";
+import { CameraCaptureModal } from "@/components/nutrition/CameraCaptureModal";
 import { ManualNutritionForm } from "@/components/nutrition/ManualNutritionForm";
 import { MyUsualsPanel } from "@/components/nutrition/MyUsualsPanel";
 import { NutritionConfirmDialog } from "@/components/nutrition/NutritionConfirmDialog";
@@ -33,7 +33,8 @@ import {
   NutritionRecentFoodEditor,
   type RecentFoodLogValues,
 } from "@/components/nutrition/NutritionRecentFoodEditor";
-import { PhotoEstimatePanel } from "@/components/nutrition/PhotoEstimatePanel";
+import type { PhotoEstimateResult } from "@/components/nutrition/photo-estimate-result";
+import type { PhotoLabelRead } from "@/lib/photo-nutrition";
 import { RecentFoodPicker } from "@/components/nutrition/RecentFoodPicker";
 import { SavedFoodEditor } from "@/components/nutrition/SavedFoodEditor";
 import { loadSavedFoodDefinitions } from "@/app/actions/saved-food";
@@ -85,7 +86,14 @@ import {
   type SavedFoodDefinition,
 } from "@/lib/saved-food";
 
-type EntryMode = "compose" | "barcode" | "manual" | "photo" | "describe";
+type EntryMode = "compose" | "manual" | "describe";
+
+let foodReviewSerial = 0;
+
+function foodReviewId(prefix: string, barcode: string | null): string {
+  foodReviewSerial += 1;
+  return `${prefix}-${barcode ?? "item"}-${foodReviewSerial}`;
+}
 
 const PRIMARY_MEALS = ["breakfast", "lunch", "snack", "dinner"] as const;
 
@@ -181,6 +189,7 @@ export function NutritionLogExperience({
   const [inspirationError, setInspirationError] = useState<string | null>(null);
   const [inspirationPending, startInspiration] = useTransition();
   const [entryMode, setEntryMode] = useState<EntryMode | null>("compose");
+  const [cameraMode, setCameraMode] = useState<"barcode" | "photo" | null>(null);
   const [promptMealSelection, setPromptMealSelection] = useState(false);
   const [barcodeMeta, setBarcodeMeta] = useState<{
     barcode: string;
@@ -529,6 +538,114 @@ export function NutritionLogExperience({
     setRecentFood(null);
     setEditing(null);
     setSaveError(null);
+  }
+
+  function openReviewedFood(input: {
+    description: string;
+    displayName: string;
+    brand: string | null;
+    barcode: string | null;
+    estimate: NutritionEstimate;
+    notice?: string | null;
+    missing?: Array<"calories" | "proteinG" | "carbsG" | "fatG">;
+    idPrefix: string;
+  }) {
+    const meal =
+      draft.mealType ??
+      suggestMealType({
+        now: new Date(),
+        eatenMealTypes,
+      });
+    beginEdit();
+    if (input.barcode) {
+      setBarcodeMeta({ barcode: input.barcode, brand: input.brand });
+    }
+    setRecentFood({
+      entry: {
+        id: foodReviewId(input.idPrefix, input.barcode),
+        logged_date: activeDate,
+        meal_type: meal,
+        description: input.description,
+        display_name: input.displayName,
+        search_aliases: [],
+        barcode: input.barcode,
+        brand: input.brand,
+        status: "eaten",
+        calories_estimated: input.estimate.calories,
+        protein_g_estimated: input.estimate.proteinG,
+        carbs_g_estimated: input.estimate.carbsG,
+        fat_g_estimated: input.estimate.fatG,
+        estimation_confidence: input.estimate.confidence,
+        estimation_source: input.estimate.source,
+        meal_id: null,
+        portions: null,
+        created_at: new Date().toISOString(),
+      },
+      estimate: { ...input.estimate, displayName: input.displayName },
+      alreadyPortioned: true,
+      notice: input.notice ?? null,
+      missing: input.missing ?? [],
+    });
+    setDraft({
+      ...emptyDraft,
+      mealType: meal,
+      mealTypeSkipped: false,
+    });
+    setPromptMealSelection(true);
+    setEstimate(null);
+    setPendingEstimate(null);
+    setClarificationQuestion(null);
+    setFromSuggestion(false);
+    setEntryMode("compose");
+    setEditing(null);
+    setMealDraft(null);
+    setCameraMode(null);
+  }
+
+  function applyLabelReview(review: PhotoLabelRead) {
+    openReviewedFood({
+      description: review.description,
+      displayName: review.estimate.displayName ?? review.description,
+      brand: review.brand,
+      barcode: review.barcode,
+      estimate: review.estimate,
+      notice: review.notice,
+      missing: review.missing,
+      idPrefix: "barcode",
+    });
+  }
+
+  function applyPhotoResult(result: PhotoEstimateResult) {
+    if (result.kind === "label") {
+      openReviewedFood({
+        description: result.description,
+        displayName: result.estimate.displayName ?? result.description,
+        brand: result.brand ?? null,
+        barcode: result.barcode ?? null,
+        estimate: result.estimate,
+        notice: result.notice,
+        missing: result.missing ?? [],
+        idPrefix: "label",
+      });
+      return;
+    }
+    beginEdit();
+    setDraft((current) => ({
+      ...current,
+      description: result.description,
+      mealTypeSkipped: false,
+      status: "eaten",
+    }));
+    openMealBuilderFromEstimate(
+      {
+        ...result.estimate,
+        confidence: "low",
+        displayName: result.estimate.displayName ?? result.description,
+      },
+      result.notice,
+    );
+    setEntryMode("compose");
+    setCameraMode(null);
   }
 
   async function handleMealBuilderSave(values: MealBuilderSaveValues) {
@@ -1124,72 +1241,6 @@ export function NutritionLogExperience({
               onCancel={resetDescriptionFlow}
               onLog={(values) => void handleRecentFoodLog(values)}
             />
-          ) : entryMode === "barcode" && !draft.description ? (
-            <BarcodeScanPanel
-              disabled={saving}
-              onCancel={() => {
-                setEntryMode("compose");
-                setBarcodeMeta(null);
-              }}
-              onPhotographLabel={() => {
-                setBarcodeMeta(null);
-                setEntryMode("photo");
-              }}
-              onConfirm={(payload) => {
-                beginEdit();
-                const meal =
-                  draft.mealType ??
-                  suggestMealType({
-                    now: new Date(),
-                    eatenMealTypes,
-                  });
-                setBarcodeMeta({
-                  barcode: payload.barcode,
-                  brand: payload.brand,
-                });
-                const estimateWithName = {
-                  ...payload.estimate,
-                  displayName: payload.displayName,
-                };
-                // Review via structured editor — never auto-save from a scan.
-                setRecentFood({
-                  entry: {
-                    id: `barcode-${payload.barcode}`,
-                    logged_date: activeDate,
-                    meal_type: meal,
-                    description: payload.description,
-                    display_name: payload.displayName,
-                    search_aliases: [],
-                    barcode: payload.barcode,
-                    brand: payload.brand,
-                    status: "eaten",
-                    calories_estimated: estimateWithName.calories,
-                    protein_g_estimated: estimateWithName.proteinG,
-                    carbs_g_estimated: estimateWithName.carbsG,
-                    fat_g_estimated: estimateWithName.fatG,
-                    estimation_confidence: estimateWithName.confidence,
-                    estimation_source: "open_food_facts",
-                    meal_id: null,
-                    portions: null,
-                    created_at: new Date().toISOString(),
-                  },
-                  estimate: estimateWithName,
-                  alreadyPortioned: true,
-                });
-                setDraft({
-                  ...emptyDraft,
-                  mealType: meal,
-                  mealTypeSkipped: false,
-                });
-                setPromptMealSelection(true);
-                setEstimate(null);
-                setPendingEstimate(null);
-                setClarificationQuestion(null);
-                setFromSuggestion(false);
-                setEntryMode("compose");
-                setEditing(null);
-              }}
-            />
           ) : entryMode === "manual" && !draft.description ? (
             <ManualNutritionForm
               initialMealType={draft.mealType ?? suggestedMealType}
@@ -1203,86 +1254,6 @@ export function NutritionLogExperience({
                   status: values.status,
                   estimate: values.estimate,
                 });
-              }}
-            />
-          ) : entryMode === "photo" && !draft.description ? (
-            <PhotoEstimatePanel
-              disabled={saving}
-              onCancel={() => setEntryMode("compose")}
-              onEstimated={(result) => {
-                if (result.kind === "label") {
-                  const meal =
-                    draft.mealType ??
-                    suggestMealType({
-                      now: new Date(),
-                      eatenMealTypes,
-                    });
-                  beginEdit();
-                  if (result.barcode) {
-                    setBarcodeMeta({
-                      barcode: result.barcode,
-                      brand: result.brand ?? null,
-                    });
-                  }
-                  setRecentFood({
-                    entry: {
-                      id: `label-${result.barcode ?? Date.now()}`,
-                      logged_date: activeDate,
-                      meal_type: meal,
-                      description: result.description,
-                      display_name:
-                        result.estimate.displayName ?? result.description,
-                      search_aliases: [],
-                      barcode: result.barcode ?? null,
-                      brand: result.brand ?? null,
-                      status: "eaten",
-                      calories_estimated: result.estimate.calories,
-                      protein_g_estimated: result.estimate.proteinG,
-                      carbs_g_estimated: result.estimate.carbsG,
-                      fat_g_estimated: result.estimate.fatG,
-                      estimation_confidence: result.estimate.confidence,
-                      estimation_source: result.estimate.source,
-                      meal_id: null,
-                      portions: null,
-                      created_at: new Date().toISOString(),
-                    },
-                    estimate: result.estimate,
-                    alreadyPortioned: true,
-                    notice: result.notice,
-                    missing: result.missing ?? [],
-                  });
-                  setDraft({
-                    ...emptyDraft,
-                    mealType: meal,
-                    mealTypeSkipped: false,
-                  });
-                  setPromptMealSelection(true);
-                  setEstimate(null);
-                  setPendingEstimate(null);
-                  setClarificationQuestion(null);
-                  setFromSuggestion(false);
-                  setEntryMode("compose");
-                  setEditing(null);
-                  setMealDraft(null);
-                  return;
-                }
-                beginEdit();
-                setDraft((current) => ({
-                  ...current,
-                  description: result.description,
-                  mealTypeSkipped: false,
-                  status: "eaten",
-                }));
-                openMealBuilderFromEstimate(
-                  {
-                    ...result.estimate,
-                    confidence: "low",
-                    displayName:
-                      result.estimate.displayName ?? result.description,
-                  },
-                  result.notice,
-                );
-                setEntryMode("compose");
               }}
             />
           ) : !draft.description && entryMode !== "describe" ? (
@@ -1444,16 +1415,10 @@ export function NutritionLogExperience({
                       trailingActions={
                         <>
                           <MealBarcodeButton
-                            onClick={() => {
-                              beginEdit();
-                              setEntryMode("barcode");
-                            }}
+                            onClick={() => setCameraMode("barcode")}
                           />
                           <MealCameraButton
-                            onClick={() => {
-                              beginEdit();
-                              setEntryMode("photo");
-                            }}
+                            onClick={() => setCameraMode("photo")}
                           />
                         </>
                       }
@@ -1907,6 +1872,17 @@ export function NutritionLogExperience({
           </section>
         </div>
       )}
+
+      {cameraMode ? (
+        <CameraCaptureModal
+          mode={cameraMode}
+          onClose={() => setCameraMode(null)}
+          onRecognised={applyLabelReview}
+          onPhotoResult={applyPhotoResult}
+          onSearch={() => setCameraMode(null)}
+          onSwitchToPhoto={() => setCameraMode("photo")}
+        />
+      ) : null}
 
       {editingSaved ? (
         <SavedFoodEditor
