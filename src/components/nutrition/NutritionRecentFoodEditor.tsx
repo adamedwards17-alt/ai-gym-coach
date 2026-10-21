@@ -49,6 +49,10 @@ type NutritionRecentFoodEditorProps = {
    * quantity multipliers are relative to that portion — default stays 1×.
    */
   alreadyPortioned?: boolean;
+  /** Shown above the rows, for a label read or barcode match. */
+  notice?: string | null;
+  /** Macros the source did not provide. They stay blank until the user types them. */
+  missingFields?: MacroField[];
   saving: boolean;
   error: string | null;
   onCancel: () => void;
@@ -72,6 +76,8 @@ export function NutritionRecentFoodEditor({
   initialMealType = null,
   promptMealSelection = false,
   alreadyPortioned = false,
+  notice = null,
+  missingFields = [],
   saving,
   error,
   onCancel,
@@ -93,9 +99,12 @@ export function NutritionRecentFoodEditor({
   );
   const [status, setStatus] = useState<NutritionEntryStatus>("eaten");
   const [expanded, setExpanded] = useState<EditorRow | null>(
-    promptMealSelection ? "mealType" : null,
+    missingFields[0] ?? (promptMealSelection ? "mealType" : null),
   );
   const [manualSource, setManualSource] = useState(false);
+  const [entered, setEntered] = useState<Partial<Record<MacroField, string>>>(
+    {},
+  );
 
   const macros = useMemo(
     () => scaleMacrosByFactor(perServing, quantity),
@@ -103,16 +112,35 @@ export function NutritionRecentFoodEditor({
   );
 
   function setMacro(field: MacroField, raw: string) {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    setManualSource(true);
+    if (missingFields.includes(field)) {
+      setEntered((current) => ({ ...current, [field]: raw }));
+    }
+    const parsed = Number(raw.replace(",", "."));
+    if (raw.trim() === "" || !Number.isFinite(parsed) || parsed < 0) {
       return;
     }
-    setManualSource(true);
     setPerServing((current) => ({
       ...current,
       [field]: roundMacro(parsed / Math.max(quantity, 0.01), field),
     }));
   }
+
+  function macroUnresolved(field: MacroField): boolean {
+    if (!missingFields.includes(field)) {
+      return false;
+    }
+    const raw = entered[field];
+    if (raw == null || raw.trim() === "") {
+      return true;
+    }
+    const parsed = Number(raw.replace(",", "."));
+    return !Number.isFinite(parsed) || parsed < 0;
+  }
+
+  const unresolved = (["calories", "proteinG", "carbsG", "fatG"] as const).filter(
+    (field) => macroUnresolved(field),
+  );
 
   function toggleRow(row: EditorRow) {
     setExpanded((current) => (current === row ? null : row));
@@ -128,7 +156,7 @@ export function NutritionRecentFoodEditor({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
-            Recent food
+            {notice ? "Review" : "Recent food"}
           </p>
           <h2 className="mt-2 font-serif text-[1.55rem] leading-tight tracking-tight">
             {entryDisplayTitle(entry)}
@@ -141,6 +169,9 @@ export function NutritionRecentFoodEditor({
             </p>
           ) : null}
           <p className="mt-1 text-[14px] text-muted">{mealLabel}</p>
+          {notice ? (
+            <p className="mt-2 text-[13px] leading-5 text-muted">{notice}</p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -214,42 +245,36 @@ export function NutritionRecentFoodEditor({
           </div>
         </EditorLine>
 
-        <MacroLine
-          label="Calories"
-          display={`${macros.calories} kcal`}
-          expanded={expanded === "calories"}
-          onToggle={() => toggleRow("calories")}
-          value={String(macros.calories)}
-          unit="kcal"
-          onChange={(value) => setMacro("calories", value)}
-        />
-        <MacroLine
-          label="Protein"
-          display={`${macros.proteinG} g`}
-          expanded={expanded === "proteinG"}
-          onToggle={() => toggleRow("proteinG")}
-          value={String(macros.proteinG)}
-          unit="g"
-          onChange={(value) => setMacro("proteinG", value)}
-        />
-        <MacroLine
-          label="Carbs"
-          display={`${macros.carbsG} g`}
-          expanded={expanded === "carbsG"}
-          onToggle={() => toggleRow("carbsG")}
-          value={String(macros.carbsG)}
-          unit="g"
-          onChange={(value) => setMacro("carbsG", value)}
-        />
-        <MacroLine
-          label="Fat"
-          display={`${macros.fatG} g`}
-          expanded={expanded === "fatG"}
-          onToggle={() => toggleRow("fatG")}
-          value={String(macros.fatG)}
-          unit="g"
-          onChange={(value) => setMacro("fatG", value)}
-        />
+        {(
+          [
+            ["calories", "Calories", "kcal"],
+            ["proteinG", "Protein", "g"],
+            ["carbsG", "Carbs", "g"],
+            ["fatG", "Fat", "g"],
+          ] as const
+        ).map(([field, label, unit]) => (
+          <MacroLine
+            key={field}
+            label={label}
+            display={
+              macroUnresolved(field)
+                ? "Add"
+                : unit === "kcal"
+                  ? `${macros[field]} kcal`
+                  : `${macros[field]} g`
+            }
+            expanded={expanded === field}
+            onToggle={() => toggleRow(field)}
+            value={
+              macroUnresolved(field)
+                ? (entered[field] ?? "")
+                : String(macros[field])
+            }
+            unit={unit}
+            placeholder={macroUnresolved(field) ? "From the label" : undefined}
+            onChange={(value) => setMacro(field, value)}
+          />
+        ))}
 
         <EditorLine
           label={
@@ -317,6 +342,12 @@ export function NutritionRecentFoodEditor({
         </EditorLine>
       </div>
 
+      {unresolved.length > 0 ? (
+        <p className="mt-4 text-[13px] leading-5 text-muted">
+          Add the missing values from the label. Nothing is assumed.
+        </p>
+      ) : null}
+
       {error ? (
         <p role="alert" className="mt-4 text-[13px] text-muted">
           {error}
@@ -325,7 +356,7 @@ export function NutritionRecentFoodEditor({
 
       <button
         type="button"
-        disabled={saving}
+        disabled={saving || unresolved.length > 0}
         className="mt-5 inline-flex h-12 w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-white disabled:opacity-60"
         onClick={() => {
           const toGrams =
@@ -407,6 +438,7 @@ function MacroLine({
   onToggle,
   value,
   unit,
+  placeholder,
   onChange,
 }: {
   label: string;
@@ -415,6 +447,7 @@ function MacroLine({
   onToggle: () => void;
   value: string;
   unit: string;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -427,6 +460,7 @@ function MacroLine({
       <label className="flex items-center gap-2 pb-4">
         <input
           inputMode="decimal"
+          placeholder={placeholder}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className="h-11 flex-1 rounded-full border border-border bg-surface px-4 text-[15px] text-foreground outline-none focus:border-primary"

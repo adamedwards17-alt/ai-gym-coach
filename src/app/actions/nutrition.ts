@@ -27,6 +27,11 @@ import {
   type LookupBarcodeResult,
 } from "@/lib/open-food-facts";
 import {
+  parsePhotoNutritionResponse,
+  reviewFromProduct,
+  type PhotoMacroKey,
+} from "@/lib/photo-nutrition";
+import {
   entryDisplayTitle,
   getLocalLoggedDate,
   isMealTypeId,
@@ -419,9 +424,13 @@ export async function estimateNutritionFromPhoto(input: {
 }): Promise<
   | {
       status: "ok" | "needs_review";
+      kind: "food" | "label";
       estimate: NutritionEstimate;
       description: string;
       message?: string;
+      brand?: string | null;
+      barcode?: string | null;
+      missing?: PhotoMacroKey[];
     }
   | { status: "needs_clarification"; question: string }
   | { status: "error"; message: string }
@@ -458,23 +467,63 @@ export async function estimateNutritionFromPhoto(input: {
       mimeType,
       note: input.note,
     });
-    const parsed = parseFoodEstimationResponse(rawText);
+    const parsed = parsePhotoNutritionResponse(rawText);
     if (parsed.kind === "clarification") {
       return { status: "needs_clarification", question: parsed.question };
     }
-    if (parsed.kind !== "estimate") {
+    if (parsed.kind === "unreadable") {
+      return { status: "error", message: parsed.message };
+    }
+    if (parsed.kind === "barcode") {
+      if (!parsed.barcode) {
+        return { status: "error", message: parsed.notice };
+      }
+      const lookup = await fetchOpenFoodFactsProduct(parsed.barcode);
+      if (lookup.status === "ok") {
+        const review = reviewFromProduct(lookup.product);
+        if (review) {
+          return {
+            status: "needs_review",
+            kind: "label",
+            estimate: review.estimate,
+            description: review.description,
+            message: review.notice,
+            brand: review.brand,
+            barcode: review.barcode,
+            missing: review.missing,
+          };
+        }
+      }
+      if (lookup.status === "error") {
+        return { status: "error", message: lookup.message };
+      }
       return {
         status: "error",
-        message: "That photo estimate couldn’t be read. Try again.",
+        message:
+          "That code isn’t in the food database. Photograph the nutrition label or enter the values manually.",
+      };
+    }
+    if (parsed.kind === "label") {
+      return {
+        status: parsed.missing.length > 0 ? "needs_review" : "ok",
+        kind: "label",
+        estimate: parsed.estimate,
+        description: parsed.description,
+        message: parsed.notice,
+        brand: parsed.brand,
+        barcode: parsed.barcode,
+        missing: parsed.missing,
+      };
+    }
+    if (parsed.kind !== "food") {
+      return {
+        status: "error",
+        message:
+          "That photo couldn’t be read. Try a clearer picture of the food or the nutrition label, or enter the values manually.",
       };
     }
 
-    const description =
-      parsed.estimate.displayName ||
-      (parsed.estimate.items.length > 0
-        ? parsed.estimate.items.map((item) => item.description).join(", ")
-        : "Meal from photo");
-
+    const description = parsed.description;
     const estimate: NutritionEstimate = {
       ...parsed.estimate,
       confidence:
@@ -495,6 +544,7 @@ export async function estimateNutritionFromPhoto(input: {
     if (!sanity.ok || sanity.needsReview) {
       return {
         status: "needs_review",
+        kind: "food",
         estimate,
         description,
         message:
@@ -505,6 +555,7 @@ export async function estimateNutritionFromPhoto(input: {
 
     return {
       status: "ok",
+      kind: "food",
       estimate,
       description,
       message:

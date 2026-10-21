@@ -217,7 +217,7 @@ export class GeminiProvider implements AiProvider {
           role: "user",
           parts: [
             {
-              text: `Estimate the nutrition in this meal photo. Prefer itemising components. Label uncertainty honestly.${note}`,
+              text: `Look at this photo. If it shows a nutrition label, copy the printed calories and macros and do not estimate them. If it shows food with no label, estimate the meal. If it shows a barcode or QR code, return the code only when it is a product barcode. If you cannot read the image, say what failed.${note}`,
             },
             {
               inlineData: {
@@ -230,8 +230,8 @@ export class GeminiProvider implements AiProvider {
       ],
       config: {
         systemInstruction: FOOD_PHOTO_ESTIMATE_SYSTEM_PROMPT,
-        temperature: 0.2,
-        maxOutputTokens: 1000,
+        temperature: 0.1,
+        maxOutputTokens: 1400,
         responseMimeType: "application/json",
       },
     });

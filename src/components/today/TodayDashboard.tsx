@@ -98,7 +98,7 @@ function NutritionSection({
           {summary.targetsMessage ??
             "Complete your profile to unlock calorie and macro targets."}
         </EmptyState>
-        <Link href="/nutrition" className={`${buttonClassName()} mt-4`}>
+        <Link href="/nutrition?log=1" className={`${buttonClassName()} mt-4`}>
           Add food
         </Link>
       </Card>
@@ -139,7 +139,7 @@ function NutritionSection({
         ) : (
           <EmptyState>Nothing logged yet.</EmptyState>
         )}
-        <Link href="/nutrition" className={`${buttonClassName()} mt-3`}>
+        <Link href="/nutrition?log=1" className={`${buttonClassName()} mt-3`}>
           Add food
         </Link>
       </Card>
@@ -678,7 +678,19 @@ export function TodayDashboard({ displayName }: TodayDashboardProps) {
 
   return (
     <div className="mx-auto w-full max-w-md px-5 pb-28 pt-8 sm:max-w-lg sm:px-6 sm:pb-16 sm:pt-12">
-      <PageHeader eyebrow="Today" title={greeting} />
+      <PageHeader
+        eyebrow="Today"
+        title={greeting}
+        action={
+          <Link
+            href="/nutrition?log=1"
+            className={buttonClassName("primary", "gap-1.5 px-3")}
+          >
+            <span aria-hidden="true">+</span>
+            Add food
+          </Link>
+        }
+      />
 
       {loadError ? (
         <p role="alert" className="mb-6 text-[13px] leading-6 text-muted">

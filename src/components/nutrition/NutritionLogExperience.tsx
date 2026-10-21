@@ -126,17 +126,20 @@ const emptyDraft: NutritionEntryDraft = {
 export function NutritionLogExperience({
   initialMealType = null,
   initialDate = null,
+  initialLoggingOpen = false,
 }: {
   initialMealType?: MealTypeId | null;
   /** When set (e.g. ?date=yesterday), load/log against this local date. */
   initialDate?: string | null;
+  /** When true (e.g. ?log=1), open the add-food flow immediately. */
+  initialLoggingOpen?: boolean;
 }) {
   const router = useRouter();
   const [activeDate, setActiveDate] = useState(
     () => initialDate ?? getLocalLoggedDate(),
   );
   const [loggingOpen, setLoggingOpen] = useState(
-    () => initialMealType != null || initialDate != null,
+    () => initialLoggingOpen || initialMealType != null || initialDate != null,
   );
   const [draft, setDraft] = useState<NutritionEntryDraft>(() =>
     initialMealType
@@ -156,6 +159,8 @@ export function NutritionLogExperience({
     entry: NutritionEntryRecord;
     estimate: NutritionEstimate;
     alreadyPortioned?: boolean;
+    notice?: string | null;
+    missing?: Array<"calories" | "proteinG" | "carbsG" | "fatG">;
   } | null>(null);
   const [mealDraft, setMealDraft] = useState<MealDraft | null>(null);
   const [mealDraftNotice, setMealDraftNotice] = useState<string | null>(null);
@@ -1112,6 +1117,8 @@ export function NutritionLogExperience({
               }
               promptMealSelection={promptMealSelection}
               alreadyPortioned={recentFood.alreadyPortioned}
+              notice={recentFood.notice}
+              missingFields={recentFood.missing}
               saving={saving}
               error={saveError}
               onCancel={resetDescriptionFlow}
@@ -1123,6 +1130,10 @@ export function NutritionLogExperience({
               onCancel={() => {
                 setEntryMode("compose");
                 setBarcodeMeta(null);
+              }}
+              onPhotographLabel={() => {
+                setBarcodeMeta(null);
+                setEntryMode("photo");
               }}
               onConfirm={(payload) => {
                 beginEdit();
@@ -1199,6 +1210,62 @@ export function NutritionLogExperience({
               disabled={saving}
               onCancel={() => setEntryMode("compose")}
               onEstimated={(result) => {
+                if (result.kind === "label") {
+                  const meal =
+                    draft.mealType ??
+                    suggestMealType({
+                      now: new Date(),
+                      eatenMealTypes,
+                    });
+                  beginEdit();
+                  if (result.barcode) {
+                    setBarcodeMeta({
+                      barcode: result.barcode,
+                      brand: result.brand ?? null,
+                    });
+                  }
+                  setRecentFood({
+                    entry: {
+                      id: `label-${result.barcode ?? Date.now()}`,
+                      logged_date: activeDate,
+                      meal_type: meal,
+                      description: result.description,
+                      display_name:
+                        result.estimate.displayName ?? result.description,
+                      search_aliases: [],
+                      barcode: result.barcode ?? null,
+                      brand: result.brand ?? null,
+                      status: "eaten",
+                      calories_estimated: result.estimate.calories,
+                      protein_g_estimated: result.estimate.proteinG,
+                      carbs_g_estimated: result.estimate.carbsG,
+                      fat_g_estimated: result.estimate.fatG,
+                      estimation_confidence: result.estimate.confidence,
+                      estimation_source: result.estimate.source,
+                      meal_id: null,
+                      portions: null,
+                      created_at: new Date().toISOString(),
+                    },
+                    estimate: result.estimate,
+                    alreadyPortioned: true,
+                    notice: result.notice,
+                    missing: result.missing ?? [],
+                  });
+                  setDraft({
+                    ...emptyDraft,
+                    mealType: meal,
+                    mealTypeSkipped: false,
+                  });
+                  setPromptMealSelection(true);
+                  setEstimate(null);
+                  setPendingEstimate(null);
+                  setClarificationQuestion(null);
+                  setFromSuggestion(false);
+                  setEntryMode("compose");
+                  setEditing(null);
+                  setMealDraft(null);
+                  return;
+                }
                 beginEdit();
                 setDraft((current) => ({
                   ...current,

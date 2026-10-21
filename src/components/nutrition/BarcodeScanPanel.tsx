@@ -10,8 +10,7 @@ import {
 import { deriveDisplayName } from "@/lib/food-naming";
 import type { NutritionEstimate } from "@/lib/nutrition";
 import {
-  isPlausibleBarcode,
-  normalizeBarcode,
+  interpretScannedCode,
   scaleNutrients,
   type OpenFoodFactsNutrients,
   type OpenFoodFactsProduct,
@@ -29,10 +28,12 @@ type BarcodeScanPanelProps = {
   /** Called with a reviewed product. The panel never saves anything itself. */
   onConfirm: (payload: BarcodeConfirmPayload) => void;
   onCancel?: () => void;
+  /** Switch to the nutrition-label photo flow when a code cannot be matched. */
+  onPhotographLabel?: () => void;
   disabled?: boolean;
 };
 
-type Step = "choose" | "scan" | "manual" | "review";
+type Step = "starting" | "scan" | "manual" | "review";
 type Basis = "serving" | "grams";
 type MacroKey = "calories" | "proteinG" | "carbsG" | "fatG";
 
@@ -136,9 +137,10 @@ function formatNumber(value: number): string {
 export function BarcodeScanPanel({
   onConfirm,
   onCancel,
+  onPhotographLabel,
   disabled = false,
 }: BarcodeScanPanelProps) {
-  const [step, setStep] = useState<Step>("choose");
+  const [step, setStep] = useState<Step>("starting");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [looking, setLooking] = useState(false);
@@ -180,14 +182,23 @@ export function BarcodeScanPanel({
 
   useEffect(() => () => stopStream(), [stopStream]);
 
+  const lookupLock = useRef(false);
+
   const runLookup = useCallback(
     async (rawBarcode: string) => {
-      const barcode = normalizeBarcode(rawBarcode);
-      if (!isPlausibleBarcode(barcode)) {
-        setError("Enter a valid barcode (8–14 digits).");
+      if (lookupLock.current) {
+        return;
+      }
+      const interpreted = interpretScannedCode(rawBarcode);
+      if (interpreted.kind === "unsupported") {
+        stopStream();
+        setNotice(null);
+        setError(interpreted.message);
         setStep("manual");
         return;
       }
+      const barcode = interpreted.barcode;
+      lookupLock.current = true;
 
       stopStream();
       setError(null);
@@ -208,7 +219,7 @@ export function BarcodeScanPanel({
           setStep("review");
         } else if (result.status === "not_found") {
           setError(
-            "We couldn’t find that product. Check the number, or log the food manually instead.",
+            "That barcode isn’t in the food database. Check the number, photograph the nutrition label, or search for the food.",
           );
         } else {
           setError(result.message);
@@ -218,6 +229,7 @@ export function BarcodeScanPanel({
           "Product lookup failed. Check your connection and try again, or enter the food manually.",
         );
       } finally {
+        lookupLock.current = false;
         setLooking(false);
       }
     },
@@ -256,7 +268,7 @@ export function BarcodeScanPanel({
       const Detector = getBarcodeDetector();
       if (Detector) {
         const detector = new Detector({
-          formats: ["ean_13", "ean_8", "upc_a", "upc_e"],
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "qr_code"],
         });
         let busy = false;
         nativeTimerRef.current = window.setInterval(() => {
@@ -296,6 +308,7 @@ export function BarcodeScanPanel({
           BarcodeFormat.UPC_A,
           BarcodeFormat.UPC_E,
           BarcodeFormat.CODE_128,
+          BarcodeFormat.QR_CODE,
         ]);
         hints.set(DecodeHintType.TRY_HARDER, true);
 
@@ -353,7 +366,7 @@ export function BarcodeScanPanel({
     };
   }, [step, runLookup, stopStream]);
 
-  async function startScan() {
+  const startScan = useCallback(async () => {
     setError(null);
     setNotice(null);
 
@@ -413,20 +426,26 @@ export function BarcodeScanPanel({
     } finally {
       setStartingCamera(false);
     }
-  }
+  }, [stopStream]);
 
   function goManual() {
     stopStream();
     setStep("manual");
   }
 
-  function backToStart() {
+  function closeScanner() {
     stopStream();
-    setProduct(null);
-    setError(null);
-    setNotice(null);
-    setStep("choose");
+    onCancel?.();
   }
+
+  const cameraBooted = useRef(false);
+  useEffect(() => {
+    if (cameraBooted.current) {
+      return;
+    }
+    cameraBooted.current = true;
+    void startScan();
+  }, [startScan]);
 
   // --- Review calculations ---------------------------------------------
   const serving = product ? servingNutrients(product) : null;
@@ -527,42 +546,18 @@ export function BarcodeScanPanel({
         </p>
       ) : null}
 
-      {step === "choose" ? (
+      {step === "starting" ? (
         <div>
-          <p className="font-serif text-[1.35rem] tracking-tight">
-            Log a packaged food
+          <p className="text-[13px] leading-5 text-muted">
+            {startingCamera ? "Starting camera…" : "Opening the camera…"}
           </p>
-          <p className="mt-1 text-[13px] leading-5 text-muted">
-            Scan the barcode or type the number to pull in the label nutrition.
-            Camera scanning needs HTTPS and permission.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              disabled={disabled || startingCamera}
-              className={primaryButton}
-              onClick={() => void startScan()}
-            >
-              {startingCamera ? "Starting camera…" : "Scan barcode"}
-            </button>
-            <button
-              type="button"
-              disabled={disabled || startingCamera}
-              className={secondaryButton}
-              onClick={goManual}
-            >
-              Enter barcode
-            </button>
-            {onCancel ? (
-              <button
-                type="button"
-                className="inline-flex h-11 items-center px-3 text-sm text-muted"
-                onClick={onCancel}
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            className="mt-4 inline-flex h-11 items-center px-3 text-sm text-muted"
+            onClick={closeScanner}
+          >
+            Close
+          </button>
         </div>
       ) : null}
 
@@ -586,9 +581,9 @@ export function BarcodeScanPanel({
             <button
               type="button"
               className="inline-flex h-11 items-center px-3 text-sm text-muted"
-              onClick={backToStart}
+              onClick={closeScanner}
             >
-              Back
+              Close
             </button>
           </div>
         </div>
@@ -630,9 +625,30 @@ export function BarcodeScanPanel({
               type="button"
               disabled={looking}
               className={secondaryButton}
-              onClick={backToStart}
+              onClick={() => void startScan()}
             >
-              Back
+              Scan again
+            </button>
+            {onPhotographLabel ? (
+              <button
+                type="button"
+                disabled={looking}
+                className={secondaryButton}
+                onClick={() => {
+                  stopStream();
+                  onPhotographLabel();
+                }}
+              >
+                Photograph the nutrition label
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={looking}
+              className="inline-flex h-11 items-center px-3 text-sm text-muted"
+              onClick={closeScanner}
+            >
+              Back to search
             </button>
           </div>
         </form>
@@ -760,7 +776,11 @@ export function BarcodeScanPanel({
             >
               Use this product
             </button>
-            <button type="button" className={secondaryButton} onClick={backToStart}>
+            <button
+              type="button"
+              className={secondaryButton}
+              onClick={() => void startScan()}
+            >
               Scan another
             </button>
             {onCancel ? (

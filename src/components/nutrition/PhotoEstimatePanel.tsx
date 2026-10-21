@@ -1,13 +1,26 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { estimateNutritionFromPhoto } from "@/app/actions/nutrition";
+import {
+  estimateNutritionFromPhoto,
+  lookupBarcodeProduct,
+} from "@/app/actions/nutrition";
+import { decodeProductCodeFromImage } from "@/lib/decode-product-code";
 import type { NutritionEstimate } from "@/lib/nutrition";
+import { interpretScannedCode } from "@/lib/open-food-facts";
+import {
+  reviewFromProduct,
+  type PhotoMacroKey,
+} from "@/lib/photo-nutrition";
 
 export type PhotoEstimateResult = {
+  kind: "food" | "label";
   description: string;
   estimate: NutritionEstimate;
   notice: string | null;
+  brand?: string | null;
+  barcode?: string | null;
+  missing?: PhotoMacroKey[];
 };
 
 type PhotoEstimatePanelProps = {
@@ -47,6 +60,38 @@ export function PhotoEstimatePanel({
     setBusy(true);
 
     try {
+      const code = await readCodeFromPreview(objectUrl);
+      if (code) {
+        const interpreted = interpretScannedCode(code);
+        if (interpreted.kind === "unsupported") {
+          setError(interpreted.message);
+          return;
+        }
+        const lookup = await lookupBarcodeProduct({ barcode: interpreted.barcode });
+        if (lookup.status === "ok") {
+          const review = reviewFromProduct(lookup.product);
+          if (review) {
+            onEstimated({
+              kind: "label",
+              description: review.description,
+              estimate: review.estimate,
+              notice: review.notice,
+              brand: review.brand,
+              barcode: review.barcode,
+              missing: review.missing,
+            });
+            return;
+          }
+        }
+        if (lookup.status === "error") {
+          setError(lookup.message);
+          return;
+        }
+        setNote(
+          "That barcode isn’t in the food database. Reading the nutrition label instead.",
+        );
+      }
+
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       let binary = "";
@@ -61,14 +106,19 @@ export function PhotoEstimatePanel({
       });
 
       if (result.status === "needs_review" || result.status === "ok") {
+        const foodNotice =
+          result.kind === "food"
+            ? (result.message ??
+              "Photo estimates are approximate — please review before saving.")
+            : (result.message ?? null);
         onEstimated({
+          kind: result.kind,
           description: result.description,
           estimate: result.estimate,
-          notice:
-            result.status === "needs_review"
-              ? (result.message ??
-                "Photo estimates are approximate — please review before saving.")
-              : "Photo estimates are approximate — portions and hidden ingredients may be off.",
+          notice: foodNotice,
+          brand: result.brand,
+          barcode: result.barcode,
+          missing: result.missing,
         });
         return;
       }
@@ -98,11 +148,11 @@ export function PhotoEstimatePanel({
             Photo estimate
           </p>
           <h2 className="mt-2 font-serif text-[1.45rem] tracking-tight">
-            Estimate from a photo
+            Photo or nutrition label
           </h2>
           <p className="mt-1 text-[13px] leading-5 text-muted">
-            Photos can’t weigh portions exactly. You’ll review the estimate
-            before anything is saved.
+            Photograph the food or the nutrition panel. Label numbers are read
+            from the pack. You’ll review them before anything is saved.
           </p>
         </div>
         <button
@@ -143,7 +193,7 @@ export function PhotoEstimatePanel({
           onClick={() => inputRef.current?.click()}
           className="inline-flex h-11 items-center rounded-full bg-primary px-5 text-sm font-medium text-white disabled:opacity-60"
         >
-          {busy ? "Estimating…" : previewUrl ? "Choose another photo" : "Take or choose photo"}
+          {busy ? "Reading photo…" : previewUrl ? "Choose another photo" : "Take or choose photo"}
         </button>
         <button
           type="button"
@@ -163,4 +213,27 @@ export function PhotoEstimatePanel({
       ) : null}
     </section>
   );
+}
+
+function readCodeFromPreview(objectUrl: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    const timer = window.setTimeout(() => resolve(null), 2500);
+    image.onload = () => {
+      void decodeProductCodeFromImage(image)
+        .then((code) => {
+          window.clearTimeout(timer);
+          resolve(code);
+        })
+        .catch(() => {
+          window.clearTimeout(timer);
+          resolve(null);
+        });
+    };
+    image.onerror = () => {
+      window.clearTimeout(timer);
+      resolve(null);
+    };
+    image.src = objectUrl;
+  });
 }

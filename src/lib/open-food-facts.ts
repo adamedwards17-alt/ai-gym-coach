@@ -217,6 +217,154 @@ export async function fetchOpenFoodFactsProduct(
   }
 }
 
+const UNSUPPORTED_SCAN_MESSAGE =
+  "That QR code doesn’t identify a packaged food. Scan the product barcode, photograph the nutrition label, or enter the food manually.";
+
+/**
+ * A camera read is only a product barcode when the text is the digits
+ * themselves, or a product URL that contains a GTIN. Other QR payloads
+ * (a brand website, a menu link) are not treated as a match.
+ */
+export function interpretScannedCode(
+  raw: string,
+):
+  | { kind: "barcode"; barcode: string }
+  | { kind: "unsupported"; message: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {
+      kind: "unsupported",
+      message:
+        "No code was read. Try again, enter the barcode, or photograph the nutrition label.",
+    };
+  }
+
+  if (/^[\d\s-]+$/.test(trimmed)) {
+    const digits = normalizeBarcode(trimmed);
+    if (isPlausibleBarcode(digits)) {
+      return { kind: "barcode", barcode: digits };
+    }
+    return {
+      kind: "unsupported",
+      message: "Enter a valid barcode (8–14 digits).",
+    };
+  }
+
+  const labeled = trimmed.match(
+    /(?:\b(?:ean|upc|gtin|barcode)\b)\s*[:#-]?\s*(\d{8}|\d{12,14})\b/i,
+  );
+  if (labeled?.[1] && isPlausibleBarcode(labeled[1])) {
+    return { kind: "barcode", barcode: labeled[1] };
+  }
+
+  const fromUrl = barcodeFromProductUrl(trimmed);
+  if (fromUrl) {
+    return { kind: "barcode", barcode: fromUrl };
+  }
+
+  return { kind: "unsupported", message: UNSUPPORTED_SCAN_MESSAGE };
+}
+
+function barcodeFromProductUrl(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+
+  const gs1 = url.pathname.match(/\/01\/(\d{8}|\d{12,14})(?:\/|$)/);
+  if (gs1?.[1]) {
+    return gs1[1];
+  }
+
+  const product = url.pathname.match(/\/product\/(\d{8}|\d{12,14})(?:\/|$)/);
+  if (product?.[1]) {
+    return product[1];
+  }
+
+  for (const key of ["barcode", "code", "ean", "gtin", "upc"]) {
+    const query = url.searchParams.get(key);
+    const digits = query ? normalizeBarcode(query) : "";
+    if (/^(?:\d{8}|\d{12,14})$/.test(digits)) {
+      return digits;
+    }
+  }
+
+  const segments = url.pathname.split("/").filter(Boolean);
+  for (const segment of segments) {
+    if (/^(?:\d{8}|\d{12,14})$/.test(segment)) {
+      return segment;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Nutrients for one labelled serving when the product has them, otherwise
+ * per 100 g. Missing fields stay missing — they are not filled from guesses.
+ */
+export function preferredProductNutrients(product: OpenFoodFactsProduct): {
+  nutrients: OpenFoodFactsNutrients;
+  basis: "serving" | "100g";
+} | null {
+  const derived =
+    product.servingQuantityG && hasAnyNutrition(product.per100g)
+      ? scaleNutrients(product.per100g, product.servingQuantityG / 100)
+      : null;
+  const direct = hasAnyNutrition(product.perServing) ? product.perServing : null;
+
+  if (!direct && !derived) {
+    return hasAnyNutrition(product.per100g)
+      ? { nutrients: product.per100g, basis: "100g" }
+      : null;
+  }
+
+  const chosen = !direct ? derived : !derived ? direct : mergeNutrients(direct, derived);
+  if (!chosen || !hasAnyNutrition(chosen)) {
+    return null;
+  }
+  return { nutrients: chosen, basis: "serving" };
+}
+
+function hasAnyNutrition(nutrients: OpenFoodFactsNutrients | null): boolean {
+  return (
+    !!nutrients &&
+    (nutrients.present.calories ||
+      nutrients.present.proteinG ||
+      nutrients.present.carbsG ||
+      nutrients.present.fatG)
+  );
+}
+
+function mergeNutrients(
+  direct: OpenFoodFactsNutrients,
+  derived: OpenFoodFactsNutrients,
+): OpenFoodFactsNutrients {
+  const pick = (
+    key: "calories" | "proteinG" | "carbsG" | "fatG",
+  ): number | null =>
+    direct.present[key]
+      ? direct[key]
+      : derived.present[key]
+        ? derived[key]
+        : null;
+
+  return {
+    calories: pick("calories"),
+    proteinG: pick("proteinG"),
+    carbsG: pick("carbsG"),
+    fatG: pick("fatG"),
+    present: {
+      calories: direct.present.calories || derived.present.calories,
+      proteinG: direct.present.proteinG || derived.present.proteinG,
+      carbsG: direct.present.carbsG || derived.present.carbsG,
+      fatG: direct.present.fatG || derived.present.fatG,
+    },
+  };
+}
+
 export function scaleNutrients(
   base: OpenFoodFactsNutrients,
   multiplier: number,

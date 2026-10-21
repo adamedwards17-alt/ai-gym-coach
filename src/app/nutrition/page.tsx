@@ -11,7 +11,7 @@ export const metadata = { title: "Nutrition" };
 export default async function NutritionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ meal?: string; date?: string }>;
+  searchParams: Promise<{ meal?: string; date?: string; log?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) {
@@ -29,6 +29,7 @@ export default async function NutritionPage({
       <NutritionLogExperience
         initialMealType={initialMealType}
         initialDate={initialDate}
+        initialLoggingOpen={params.log === "1"}
       />
     );
   }
@@ -55,6 +56,7 @@ export default async function NutritionPage({
     <NutritionLogExperience
       initialMealType={initialMealType}
       initialDate={initialDate}
+      initialLoggingOpen={params.log === "1"}
     />
   );
 }
