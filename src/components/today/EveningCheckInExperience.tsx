@@ -21,7 +21,12 @@ import {
 } from "@/lib/evening-check-in";
 import type { NutritionEstimate } from "@/lib/nutrition";
 import { labelForMealType } from "@/lib/nutrition";
-import { buildNutritionUsuals, formatUsualServing } from "@/lib/nutrition-usuals";
+import { RecentFoodPicker } from "@/components/nutrition/RecentFoodPicker";
+import {
+  compareUsualsByRecency,
+  formatUsualServing,
+  recentUsualsForMeal,
+} from "@/lib/nutrition-usuals";
 
 export function EveningCheckInExperience({ date }: { date: string | null }) {
   const router = useRouter();
@@ -356,7 +361,8 @@ function FoodLogger({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [usuals, setUsuals] = useState<ReturnType<typeof buildNutritionUsuals>>([]);
+  const [usuals, setUsuals] = useState<ReturnType<typeof recentUsualsForMeal>>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [estimate, setEstimate] = useState<NutritionEstimate | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -367,28 +373,37 @@ function FoodLogger({
       if (result.status !== "ok") {
         return;
       }
-      const items = buildNutritionUsuals(result.context.history).filter(
-        (item) => item.mealType === meal || (meal === "snack" && item.mealType === "drink"),
-      );
+      const items =
+        meal === "snack"
+          ? [
+              ...recentUsualsForMeal(result.context.history, "snack"),
+              ...recentUsualsForMeal(result.context.history, "drink"),
+            ].sort(compareUsualsByRecency)
+          : recentUsualsForMeal(result.context.history, meal);
       setUsuals(items);
     });
   }, [date, meal]);
 
-  async function addUsual(id: string, name: string) {
-    if (foodAlreadyLogged(existing, name)) {
-      setNote("That’s already in the diary.");
+  async function addSelected() {
+    const chosen = usuals.filter((item) => selectedIds.includes(item.sourceEntryId));
+    if (working || busy || chosen.length === 0) {
       return;
     }
     setWorking(true);
     const result = await copyNutritionEntriesToDate({
       loggedDate: date,
-      sourceEntryIds: [id],
+      sourceEntryIds: chosen.map((item) => item.sourceEntryId),
     });
     setWorking(false);
-    if (result.status !== "ok" || result.added === 0) {
-      setNote(result.status === "ok" ? "That’s already in the diary." : result.message);
+    if (result.status !== "ok") {
+      setNote(result.message);
       return;
     }
+    if (result.added === 0) {
+      setNote("That’s already in the diary.");
+      return;
+    }
+    setSelectedIds([]);
     onSaved();
   }
 
@@ -437,25 +452,32 @@ function FoodLogger({
     <Card>
       <SectionTitle>Add {labelForMealType(meal).toLowerCase()}</SectionTitle>
       {usuals.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-2">
-          {usuals.slice(0, 4).map((item) => (
-            <li key={item.key}>
-              <button
-                type="button"
-                disabled={working || busy}
-                className={`${buttonClassName("secondary")} h-auto w-full justify-start py-2 text-left`}
-                onClick={() => void addUsual(item.sourceEntryId, item.name)}
-              >
-                <span>
-                  <span className="block">{item.name}</span>
-                  <span className="block text-[12px] font-medium text-muted">
-                    {formatUsualServing(item.portions)} · {Math.round(item.calories)} kcal
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3">
+          <RecentFoodPicker
+            label={`${labelForMealType(meal)} foods`}
+            busy={working || busy}
+            selectedIds={selectedIds}
+            items={usuals.map((item) => {
+              const logged = foodAlreadyLogged(existing, item.name);
+              return {
+                id: item.sourceEntryId,
+                title: item.name,
+                disabled: logged,
+                detail: `${formatUsualServing(item.portions)} · ${Math.round(item.calories)} kcal${logged ? " · already logged" : ""}`,
+              };
+            })}
+            onToggle={(id) =>
+              setSelectedIds((current) =>
+                current.includes(id)
+                  ? current.filter((item) => item !== id)
+                  : [...current, id],
+              )
+            }
+            onAdd={() => {
+              void addSelected();
+            }}
+          />
+        </div>
       ) : null}
       <label className="mt-3 block text-[13px] text-muted">
         Or describe it

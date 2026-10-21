@@ -5,15 +5,15 @@ import {
   copyNutritionEntriesToDate,
   loadQuickMealContext,
 } from "@/app/actions/nutrition-quick-log";
+import { RecentFoodPicker } from "@/components/nutrition/RecentFoodPicker";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { cardClass } from "@/components/ui/surfaces";
 import { labelForMealType, type NutritionEntryRecord } from "@/lib/nutrition";
 import {
-  buildNutritionUsuals,
   entriesNotAlreadyLogged,
   formatUsualServing,
-  groupNutritionUsuals,
   nutritionUsualKey,
+  recentUsualGroups,
   type NutritionUsual,
 } from "@/lib/nutrition-usuals";
 
@@ -54,8 +54,7 @@ export function MyUsualsPanel({
     };
   }, [loggedDate, existingEntries.length]);
 
-  const usuals = useMemo(() => buildNutritionUsuals(history), [history]);
-  const groups = useMemo(() => groupNutritionUsuals(usuals), [usuals]);
+  const groups = useMemo(() => recentUsualGroups(history), [history]);
   const alreadyLogged = useMemo(
     () => new Set(existingEntries.map((entry) => nutritionUsualKey(entry))),
     [existingEntries],
@@ -123,45 +122,31 @@ export function MyUsualsPanel({
           {groups.map((group) => (
             <div key={group.label} className="rounded-xl bg-background px-2 py-2">
               <p className="px-2 text-[13px] font-semibold text-foreground">{group.label}</p>
-              <ul className="mt-1">
-                {group.items.map((item) => {
-                  const checked = selected.includes(item.sourceEntryId);
+              <RecentFoodPicker
+                label={`${group.label} foods`}
+                busy={busy}
+                selectedIds={selected}
+                items={group.items.map((item) => {
                   const logged = alreadyLogged.has(item.key);
-                  return (
-                    <li key={item.key}>
-                      <label
-                        className={`mt-1 flex items-start gap-3 rounded-xl px-2 py-2 ${checked ? "bg-primary/10" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={checked}
-                          disabled={busy || logged}
-                          onChange={() => toggle(item.sourceEntryId, selected, setSelected)}
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-[15px] text-foreground">{item.name}</span>
-                          <span className="block text-[12px] leading-5 text-muted">
-                            {formatUsualServing(item.portions)} · {macroLine(item)} · adds to {group.label}
-                            {logged ? " · already logged" : ""}
-                          </span>
-                        </span>
-                      </label>
-                    </li>
-                  );
+                  return {
+                    id: item.sourceEntryId,
+                    title: item.name,
+                    disabled: logged,
+                    detail: `${formatUsualServing(item.portions)} · ${macroLine(item)} · adds to ${group.label}${logged ? " · already logged" : ""}`,
+                  };
                 })}
-              </ul>
+                onToggle={(id) => toggle(id, selected, setSelected)}
+                onAdd={() => {
+                  const ids = group.items
+                    .map((item) => item.sourceEntryId)
+                    .filter((id) => selected.includes(id));
+                  void addSources(ids, () =>
+                    setSelected((current) => current.filter((id) => !ids.includes(id))),
+                  );
+                }}
+              />
             </div>
           ))}
-          <Button
-            disabled={busy || selected.length === 0}
-            onClick={() => {
-              void addSources(selected, () => setSelected([]));
-            }}
-            className="w-fit"
-          >
-            {busy ? "Adding…" : `Add selected${selected.length ? ` (${selected.length})` : ""}`}
-          </Button>
         </div>
       )}
 

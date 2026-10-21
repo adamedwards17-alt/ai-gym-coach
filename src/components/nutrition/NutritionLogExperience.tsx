@@ -13,6 +13,7 @@ import {
   saveNutritionEntry,
   updateNutritionEntry,
 } from "@/app/actions/nutrition";
+import { copyNutritionEntriesToDate } from "@/app/actions/nutrition-quick-log";
 import { BarcodeScanPanel } from "@/components/nutrition/BarcodeScanPanel";
 import { ManualNutritionForm } from "@/components/nutrition/ManualNutritionForm";
 import { MyUsualsPanel } from "@/components/nutrition/MyUsualsPanel";
@@ -33,6 +34,7 @@ import {
   type RecentFoodLogValues,
 } from "@/components/nutrition/NutritionRecentFoodEditor";
 import { PhotoEstimatePanel } from "@/components/nutrition/PhotoEstimatePanel";
+import { RecentFoodPicker } from "@/components/nutrition/RecentFoodPicker";
 import { buttonClassName } from "@/components/ui/Button";
 import { cardClass } from "@/components/ui/surfaces";
 import {
@@ -67,6 +69,7 @@ import {
   type NutritionEstimate,
 } from "@/lib/nutrition";
 import { consumePendingFoodLog } from "@/lib/pending-food-log";
+import { formatUsualServing, nutritionUsualKey } from "@/lib/nutrition-usuals";
 
 type EntryMode = "compose" | "barcode" | "manual" | "photo" | "describe";
 
@@ -169,6 +172,10 @@ export function NutritionLogExperience({
     NutritionEntryRecord[]
   >([]);
   const [searchAllCategories, setSearchAllCategories] = useState(false);
+  const [selectedRecentIds, setSelectedRecentIds] = useState<string[]>([]);
+  const [addingRecent, setAddingRecent] = useState(false);
+  const [recentAddError, setRecentAddError] = useState<string | null>(null);
+  const [recentRevision, setRecentRevision] = useState(0);
 
   const today = getLocalLoggedDate();
   const viewingHistorical = activeDate !== today;
@@ -294,7 +301,7 @@ export function NutritionLogExperience({
     let cancelled = false;
     const mealType = draft.mealType;
     if (!mealType || searchAllCategories) {
-      void listRecentNutritionEntries(24).then((result) => {
+      void listRecentNutritionEntries(80).then((result) => {
         if (cancelled) {
           return;
         }
@@ -305,7 +312,7 @@ export function NutritionLogExperience({
       };
     }
 
-    void listRecentNutritionEntries(24, { mealType }).then((result) => {
+    void listRecentNutritionEntries(80, { mealType }).then((result) => {
       if (cancelled) {
         return;
       }
@@ -315,7 +322,7 @@ export function NutritionLogExperience({
     return () => {
       cancelled = true;
     };
-  }, [draft.mealType, searchAllCategories]);
+  }, [draft.mealType, searchAllCategories, recentRevision]);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 60_000);
@@ -643,6 +650,33 @@ export function NutritionLogExperience({
       }
       router.push(`/coach/${result.conversation.id}`);
     });
+  }
+
+  async function addSelectedRecent() {
+    const ids = categorySuggestions
+      .filter((entry) => selectedRecentIds.includes(entry.id))
+      .map((entry) => entry.id);
+    if (addingRecent || ids.length === 0) {
+      return;
+    }
+    setAddingRecent(true);
+    setRecentAddError(null);
+    const result = await copyNutritionEntriesToDate({
+      loggedDate: activeDate,
+      sourceEntryIds: ids,
+    });
+    setAddingRecent(false);
+    if (result.status !== "ok") {
+      setRecentAddError(result.message);
+      return;
+    }
+    if (result.added === 0) {
+      setRecentAddError("Those foods are already in this day.");
+      return;
+    }
+    setSelectedRecentIds([]);
+    setRecentRevision((current) => current + 1);
+    await refreshDay(activeDate);
   }
 
   function applySuggestion(entry: NutritionEntryRecord) {
@@ -1159,6 +1193,8 @@ export function NutritionLogExperience({
                         type="button"
                         onClick={() => {
                           setSearchAllCategories(false);
+                          setSelectedRecentIds([]);
+                          setRecentAddError(null);
                           setDraft((current) => ({
                             ...current,
                             mealType: meal,
@@ -1245,9 +1281,11 @@ export function NutritionLogExperience({
                   {draft.mealType ? (
                     <button
                       type="button"
-                      onClick={() =>
-                        setSearchAllCategories((current) => !current)
-                      }
+                      onClick={() => {
+                        setSelectedRecentIds([]);
+                        setRecentAddError(null);
+                        setSearchAllCategories((current) => !current);
+                      }}
                       className="text-[12px] text-muted underline-offset-2 hover:text-foreground hover:underline"
                     >
                       {searchAllCategories
@@ -1257,29 +1295,45 @@ export function NutritionLogExperience({
                   ) : null}
                 </div>
                 {categorySuggestions.length > 0 ? (
-                  <ul className="mt-3 divide-y divide-border/70 rounded-2xl border border-border/70">
-                    {categorySuggestions.slice(0, 8).map((entry) => {
-                      const line = formatEntryNutritionLine(entry);
-                      return (
-                        <li key={entry.id}>
-                          <button
-                            type="button"
-                            onClick={() => applySuggestion(entry)}
-                            className="flex w-full flex-col items-start gap-0.5 px-4 py-3 text-left transition-colors hover:bg-surface"
-                          >
-                            <span className="text-[14px] text-foreground">
-                              {entryDisplayTitle(entry)}
-                            </span>
-                            {line ? (
-                              <span className="text-[12px] text-muted">
-                                {line}
-                              </span>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div className="mt-3 rounded-2xl border border-border/70">
+                    <RecentFoodPicker
+                      label={
+                        draft.mealType && !searchAllCategories
+                          ? `Recent ${labelForMealType(draft.mealType)}`
+                          : "Recent foods"
+                      }
+                      busy={addingRecent}
+                      selectedIds={selectedRecentIds}
+                      items={categorySuggestions.map((entry) => {
+                        const logged = todayEntries.some(
+                          (existing) =>
+                            nutritionUsualKey(existing) === nutritionUsualKey(entry),
+                        );
+                        const line = formatEntryNutritionLine(entry);
+                        return {
+                          id: entry.id,
+                          title: entryDisplayTitle(entry),
+                          disabled: logged,
+                          detail: `${formatUsualServing(entry.portions)}${line ? ` · ${line}` : ""}${logged ? " · already logged" : ""}`,
+                        };
+                      })}
+                      onToggle={(id) =>
+                        setSelectedRecentIds((current) =>
+                          current.includes(id)
+                            ? current.filter((item) => item !== id)
+                            : [...current, id],
+                        )
+                      }
+                      onAdd={() => {
+                        void addSelectedRecent();
+                      }}
+                    />
+                    {recentAddError ? (
+                      <p role="alert" className="px-3 pb-3 text-[13px] leading-6 text-muted">
+                        {recentAddError}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : (
                   <p className="mt-3 text-[13px] leading-6 text-muted">
                     {draft.mealType && !searchAllCategories

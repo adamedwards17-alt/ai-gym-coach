@@ -17,7 +17,12 @@ export type NutritionUsual = {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  loggedDate: string;
+  createdAt: string;
 };
+
+/** How many saved foods a meal picker shows before the list scrolls. */
+export const RECENT_FOOD_VISIBLE_COUNT = 3;
 
 const MEAL_ORDER: Array<MealTypeId | null> = [
   "breakfast",
@@ -35,12 +40,38 @@ export function nutritionUsualKey(
   return entryDisplayTitle(entry).trim().toLowerCase();
 }
 
-export function formatUsualServing(portions: number): string {
+export function formatUsualServing(portions: number | null | undefined): string {
   const amount = normalizePortions(portions);
   if (Math.abs(amount - 1) < 0.001) {
     return "1 serving";
   }
   return `${amount} servings`;
+}
+
+function byRecentLog(a: NutritionEntryRecord, b: NutritionEntryRecord): number {
+  if (a.logged_date !== b.logged_date) {
+    return a.logged_date < b.logged_date ? 1 : -1;
+  }
+  if (a.created_at !== b.created_at) {
+    return a.created_at < b.created_at ? 1 : -1;
+  }
+  return 0;
+}
+
+function usualFromEntry(entry: NutritionEntryRecord, key: string): NutritionUsual {
+  return {
+    key,
+    sourceEntryId: entry.id,
+    name: entryDisplayTitle(entry),
+    mealType: entry.meal_type,
+    portions: normalizePortions(entry.portions),
+    calories: entry.calories_estimated ?? 0,
+    proteinG: Number(entry.protein_g_estimated ?? 0),
+    carbsG: Number(entry.carbs_g_estimated ?? 0),
+    fatG: Number(entry.fat_g_estimated ?? 0),
+    loggedDate: entry.logged_date,
+    createdAt: entry.created_at,
+  };
 }
 
 /**
@@ -50,12 +81,7 @@ export function formatUsualServing(portions: number): string {
 export function buildNutritionUsuals(
   entries: NutritionEntryRecord[],
 ): NutritionUsual[] {
-  const ordered = [...entries].sort((a, b) => {
-    if (a.logged_date !== b.logged_date) {
-      return a.logged_date < b.logged_date ? 1 : -1;
-    }
-    return a.created_at < b.created_at ? 1 : -1;
-  });
+  const ordered = [...entries].sort(byRecentLog);
   const seen = new Set<string>();
   const usuals: NutritionUsual[] = [];
   for (const entry of ordered) {
@@ -67,19 +93,63 @@ export function buildNutritionUsuals(
       continue;
     }
     seen.add(key);
-    usuals.push({
-      key,
-      sourceEntryId: entry.id,
-      name: entryDisplayTitle(entry),
-      mealType: entry.meal_type,
-      portions: normalizePortions(entry.portions),
-      calories: entry.calories_estimated,
-      proteinG: Number(entry.protein_g_estimated ?? 0),
-      carbsG: Number(entry.carbs_g_estimated ?? 0),
-      fatG: Number(entry.fat_g_estimated ?? 0),
-    });
+    usuals.push(usualFromEntry(entry, key));
   }
   return usuals;
+}
+
+/**
+ * Newest successful log of each food inside one meal.
+ * A later snack does not remove or reorder that food in lunch.
+ */
+export function recentUsualsForMeal(
+  entries: NutritionEntryRecord[],
+  mealType: MealTypeId | null,
+): NutritionUsual[] {
+  const ordered = [...entries].sort(byRecentLog);
+  const seen = new Set<string>();
+  const usuals: NutritionUsual[] = [];
+  for (const entry of ordered) {
+    if (entry.meal_type !== mealType || entry.calories_estimated == null) {
+      continue;
+    }
+    const key = nutritionUsualKey(entry);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    usuals.push(usualFromEntry(entry, key));
+  }
+  return usuals;
+}
+
+export function compareUsualsByRecency(a: NutritionUsual, b: NutritionUsual): number {
+  if (a.loggedDate !== b.loggedDate) {
+    return a.loggedDate < b.loggedDate ? 1 : -1;
+  }
+  if (a.createdAt !== b.createdAt) {
+    return a.createdAt < b.createdAt ? 1 : -1;
+  }
+  return 0;
+}
+
+/** Each meal keeps its own history, newest log first. Empty meals are omitted. */
+export function recentUsualGroups(
+  entries: NutritionEntryRecord[],
+): Array<{ mealType: MealTypeId | null; label: string; items: NutritionUsual[] }> {
+  return MEAL_ORDER.flatMap((mealType) => {
+    const items = recentUsualsForMeal(entries, mealType);
+    if (items.length === 0) {
+      return [];
+    }
+    return [
+      {
+        mealType,
+        label: mealType ? labelForMealType(mealType) : "No meal type",
+        items,
+      },
+    ];
+  });
 }
 
 export function groupNutritionUsuals(

@@ -5,6 +5,8 @@ import {
   buildNutritionUsuals,
   entriesNotAlreadyLogged,
   groupNutritionUsuals,
+  recentUsualGroups,
+  recentUsualsForMeal,
   sumUsualMacros,
   yesterdayLoggedDate,
 } from "@/lib/nutrition-usuals";
@@ -95,5 +97,62 @@ describe("nutrition usuals", () => {
 
   it("uses the calendar day before the diary date", () => {
     assert.equal(yesterdayLoggedDate("2026-03-01"), "2026-02-28");
+  });
+
+  it("keeps each meal's own history with the newest log first", () => {
+    const entries = [
+      entry({
+        id: "lunch-old",
+        description: "Chicken",
+        logged_date: "2026-10-18",
+        meal_type: "lunch",
+        created_at: "2026-10-18T12:00:00.000Z",
+        portions: 1,
+      }),
+      entry({
+        id: "lunch-salad",
+        description: "Salad",
+        logged_date: "2026-10-19",
+        meal_type: "lunch",
+        created_at: "2026-10-19T12:30:00.000Z",
+      }),
+      entry({
+        id: "lunch-chicken-again",
+        description: "Chicken",
+        logged_date: "2026-10-19",
+        meal_type: "lunch",
+        created_at: "2026-10-19T13:00:00.000Z",
+        portions: 2,
+        calories_estimated: 500,
+      }),
+      entry({
+        id: "snack-chicken",
+        description: "Chicken",
+        logged_date: "2026-10-20",
+        meal_type: "snack",
+        created_at: "2026-10-20T16:00:00.000Z",
+        portions: 1,
+        calories_estimated: 250,
+      }),
+    ];
+
+    const lunch = recentUsualsForMeal(entries, "lunch");
+    assert.deepEqual(
+      lunch.map((item) => item.name),
+      ["Chicken", "Salad"],
+    );
+    assert.equal(lunch[0]?.sourceEntryId, "lunch-chicken-again");
+    assert.equal(lunch[0]?.portions, 2);
+    assert.equal(lunch.length, 2);
+
+    const snack = recentUsualsForMeal(entries, "snack");
+    assert.deepEqual(snack.map((item) => item.sourceEntryId), ["snack-chicken"]);
+
+    const groups = recentUsualGroups(entries);
+    assert.deepEqual(
+      groups.find((group) => group.mealType === "lunch")?.items.map((item) => item.name),
+      ["Chicken", "Salad"],
+    );
+    assert.equal(groups.find((group) => group.mealType === "breakfast"), undefined);
   });
 });
